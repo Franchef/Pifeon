@@ -1,85 +1,85 @@
 # 🐦 Pifeon
 
-[![License: MIT](https://shields.io)](https://opensource.org)
+[![License: GPL v3](https://shields.io)](https://gnu.org)
 [![.NET 9](https://shields.io)](https://microsoft.com)
 [![Platform](https://shields.io)]()
 
-**Pifeon** (da *Pigeon* + *File*) è un software open source e multipiattaforma progettato per il trasferimento e la sincronizzazione di file e cartelle in modalità **Peer-to-Peer (P2P) crittografata**, senza intermediari cloud e senza necessità di registrazione. 
+**Pifeon** (from *Pigeon* + *File*) is an open-source, cross-platform software designed for encrypted **Peer-to-Peer (P2P) file and folder transfer/synchronization**. It works directly between devices without cloud intermediaries, data logging, or mandatory user registration.
 
-Proprio come i piccioni viaggiatori del passato, Pifeon porta i tuoi dati direttamente a destinazione alla massima velocità consentita dalla tua rete.
-
----
-
-## 🚀 Caratteristiche Principali
-
-- **Zero Cloud & Zero Account:** Nessuna registrazione, nessuna email, nessun database centralizzato. I file viaggiano direttamente tra i nodi.
-- **Privacy-First:** Crittografia End-to-End (AES-GCM / Seclink). Nemmeno il server di segnalazione può intercettare i tuoi dati.
-- **Hole Punching Intelligente:** Supera firewall e NAT casalinghi (tramite protocolli STUN/ICE) per stabilire connessioni dirette ovunque.
-- **Leggero e Performante:** Scritto in C# moderno e ottimizzato per consumare pochissima RAM anche con trasferimenti di file da centinaia di gigabyte.
+Just like the homing pigeons of the past, Pifeon delivers your data straight to its destination at the maximum speed allowed by your network.
 
 ---
 
-## 🏗️ Struttura della Soluzione (.sln)
+## 🚀 Key Features
 
-Il progetto adotta un'architettura modulare altamente disaccoppiata (Principio Open/Closed), permettendo di estendere le funzionalità senza riscrivere il motore di rete.
+- **Zero Cloud & Zero Accounts:** No registration, no email required, and no centralized database. Files travel strictly between nodes.
+- **Privacy-First & Copyleft:** Protected by the GNU GPLv3 license. End-to-End encrypted (AES-GCM / Seclink)—not even the signaling server can peek into your data.
+- **Smart Hole Punching:** Seamlessly bypasses firewalls and home NATs (via STUN/ICE protocols) to establish direct connections anywhere.
+- **Lightweight & High-Performance:** Written in modern C# and optimized for low RAM consumption, even when streaming multi-gigabyte folders.
+
+---
+
+## 🏗️ Solution Structure (.sln)
+
+The project adopts a highly decoupled, modular architecture (Open/Closed Principle), allowing future extensions without rewriting the core network engine.
 
 ```text
 src/
-├── Pifeon.Core/          # 🧠 La libreria logica centrale (.NET Class Library)
-│   ├── Networking/       # Gestione Socket, WebRTC, Hole Punching (STUN)
-│   ├── Cryptography/     # Cifratura simmetrica/asimmetrica dei file
-│   ├── IO/               # Scansione cartelle, calcolo Hash (SHA256) e gestione Stream
-│   └── Signaling/        # Interfacce per l'accoppiamento dei client (ISignalingService)
+├── Pifeon.Core/          # 🧠 Central logic library (.NET Class Library)
+│   ├── Networking/       # Sockets, WebRTC, Hole Punching (STUN) management
+│   ├── Cryptography/     # Symmetric/Asymmetric end-to-end encryption
+│   ├── IO/               # Folder scanning, SHA256 hashing, and Stream handling
+│   └── Signaling/        # Abstractions for client pairing (ISignalingService)
 │
-├── Pifeon.Cli/           # 💻 Interfaccia a riga di comando (Console Application)
-│   └── [Usa Spectre.Console per un'esperienza terminale avanzata e scriptabile]
+├── Pifeon.Cli/           # 💻 Command Line Interface (Console Application)
+│   └── [Uses Spectre.Console for a rich, scriptable terminal experience]
 │
-├── Pifeon.Gui/           # 🎨 Interfaccia grafica nativa (AvaloniaUI)
-│   └── [UI desktop cross-platform con rendering hardware in stile MVVM]
+├── Pifeon.Gui/           # 🎨 Native Graphical Interface (AvaloniaUI)
+│   └── [Cross-platform desktop UI with hardware rendering using MVVM]
 │
-└── Pifeon.Server/        # 🌐 Mini-server di segnalazione (Signaling Server)
-    └── [Hub ultra-leggero in memoria per l'accoppiamento iniziale tramite codice a 6 cifre]
+└── Pifeon.Server/        # 🌐 Ultra-lightweight Signaling Server
+    └── [In-memory hub used exclusively for initial 6-digit code pairing]
 ```
 
 ---
 
-## ⚙️ Come Funziona (Il Flusso)
+## ⚙️ How It Works
 
-### Scenario A: Invio Singolo "Al Volo" (Stile WeTransfer)
-1. **Il Mittente** trascina un file/cartella su Pifeon.
-2. Il client contatta il `Pifeon.Server` e riceve un **codice temporaneo a 6 cifre** (valido 5 minuti).
-3. **Il Destinatario** inserisce il codice nella sua istanza di Pifeon.
-4. Il server scambia gli IP pubblici (NAT Traversal) e mette in contatto diretto i due PC.
-5. Il canale P2P si stabilisce, il codice viene eliminato dal server e il file viene trasmesso a blocchi cifrati.
+### Scenario A: One-Time Quick Transfer (WeTransfer Alternative)
+1. **The Sender** drops a file/folder into Pifeon.
+2. The client contacts `Pifeon.Server` and receives a temporary **6-digit code** (valid for 5 minutes).
+3. **The Receiver** enters the 6-digit code into their Pifeon instance.
+4. The server exchanges public IPs (NAT Traversal) and introduces the two PCs.
+5. A direct P2P channel is established, the code is wiped from the server, and the file is streamed in encrypted chunks.
 
-### Scenario B: Sincronizzazione Continua (Evoluzione Future-Proof)
-Sfruttando la Dependency Injection, l'interfaccia `ISignalingService` può essere estesa con un modulo autenticato:
-- I PC scambiano una chiave asimmetrica permanente una sola volta.
-- La classe `FileSystemWatcher` nativa di .NET monitora le modifiche alle cartelle in tempo reale.
-- I client si connettono in background in modo silente e automatizzato per aggiornare solo i blocchi (*delta sync*) dei file modificati.
+### Scenario B: Continuous Synchronization (Future-Proof Evolution)
+Leveraging Dependency Injection, the `ISignalingService` can be extended with an authenticated module:
+- Peers exchange a permanent asymmetric key once.
+- The native .NET `FileSystemWatcher` monitors folder changes in real time.
+- Clients silently connect in the background to sync only the modified chunks (*delta sync*) of the files.
 
 ---
 
-## 📦 Compilazione e Deploy
+## 📦 Compilation & Deployment
 
-Per garantire la massima integrazione con la community open source e i sistemi operativi moderni, il deployment è progettato per eliminare qualsiasi dipendenza esterna.
+To ensure maximum integration with the open-source community, deployment eliminates external runtime dependencies.
 
 ### ⚡ Native AOT (Ahead-Of-Time)
-Sia la versione CLI che la GUI sfruttano la compilazione **Native AOT** di .NET. Questo significa che il codice C# viene compilato direttamente in codice macchina nativo.
-- **Vantaggi:** Nessuna necessità per l'utente di installare il .NET Runtime. Avvio istantaneo. File eseguibile singolo da pochi megabyte.
+Both the CLI and GUI versions leverage .NET **Native AOT** compilation. The C# code compiles directly into native machine code.
+- **Benefits:** Users don't need to install the .NET Runtime. Near-instant startup times. A single, self-contained executable of just a few megabytes.
 
-### 🏪 Distribuzione tramite Marketplace
+### 🏪 Marketplace Distribution
 
-L'applicazione viene pacchettizzata per rispettare le sandbox di sicurezza dei principali store:
+The application is packaged to respect the security sandboxes of major app stores:
 
 #### 🪟 Windows (Microsoft Store)
-Viene distribuita come pacchetto nativo **MSIX** (configurato tramite il *Windows Application Packaging Project*). Richiede l'attivazione dei permessi di rete (`internetClientServer`) nel manifesto per consentire le connessioni P2P in ingresso.
+Distributed as a native **MSIX** package. It requests inbound/outbound network capabilities (`internetClientServer`) in its manifest to allow direct P2P connections.
 
 #### 🐧 Linux (Ubuntu Snap Store & Flathub)
-Impacchettata tramite **Snapcraft** e **Flatpak**. Sfrutta le interfacce `network` e `home` per consentire al binario nativo di comunicare all'esterno e leggere i file da trasferire selezionati dall'utente, garantendo piena compatibilità con Ubuntu, Fedora e distribuzioni desktop.
+Packaged via **Snapcraft** and **Flatpak**. It utilizes the `network` and `home` interfaces, allowing the native binary to communicate externally and read selected files, ensuring full compatibility across Ubuntu, Fedora, and other desktop distros.
 
 ---
 
-## 📄 Licenza
+## 📄 License
 
-Questo progetto è rilasciato sotto i termini della licenza **MIT**. Consulta il file [LICENSE](LICENSE) per maggiori dettagli.
+This project is licensed under the **GNU General Public License v3.0** - see the [LICENSE](LICENSE) file for details.

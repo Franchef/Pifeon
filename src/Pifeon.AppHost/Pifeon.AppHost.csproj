@@ -9,4 +9,8 @@
     <UserSecretsId>f54e05ba-dfc7-4d1f-a349-1dd0f3f65aee</UserSecretsId>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Pifeon.Server\Pifeon.Server.csproj" />
+  </ItemGroup>
+
 </Project>

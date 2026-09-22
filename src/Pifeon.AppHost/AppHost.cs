@@ -1,3 +1,5 @@
-var builder = DistributedApplication.CreateBuilder(args);
+IDistributedApplicationBuilder builder = DistributedApplication.CreateBuilder(args);
 
-builder.Build().Run();
+builder.AddProject<Projects.Pifeon_Server>("PifeonServer");
+
+await builder.Build().RunAsync();

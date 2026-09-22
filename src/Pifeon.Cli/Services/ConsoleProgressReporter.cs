@@ -11,14 +11,13 @@ public static class ConsoleProgressReporter
     {
         await AnsiConsole.Progress()
             .Columns(
-            [
                 new TaskDescriptionColumn(),
                 new ProgressBarColumn(),
                 new PercentageColumn(),
                 new DownloadedColumn(),
                 new TransferSpeedColumn(),
                 new RemainingTimeColumn()
-            ])
+            )
             .StartAsync(async ctx =>
             {
                 ProgressTask progressTask = ctx.AddTask($"[green]{fileName}[/]", maxValue: totalBytes);

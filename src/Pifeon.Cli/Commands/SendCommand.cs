@@ -61,11 +61,10 @@ public sealed class SendCommand : AsyncCommand<SendSettings>
             await AnsiConsole.Progress()
                 .AutoClear(true)
                 .Columns(
-                [
                     new TaskDescriptionColumn(),
                     new ProgressBarColumn(),
                     new RemainingTimeColumn()
-                ])
+                )
                 .StartAsync(async progressContext =>
                 {
                     ProgressTask timerTask = progressContext.AddTask("[yellow]Scadenza Sessione[/]", maxValue: 300);

@@ -1,9 +1,12 @@
 <Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/Pifeon.IntegrationTests/Pifeon.IntegrationTests.csproj" Id="928f8e78-26b0-4b9b-bca5-70aba41ddde2" />
+    <Project Path="tests/Pifeon.Tests/Pifeon.Tests.csproj" Id="a9b8465b-43e0-4ffc-915b-280cbc8bda01" />
+  </Folder>
   <Project Path="src/Pifeon.App/Pifeon.App.fsproj" Id="6c82a2cb-9b7e-4660-a731-24f2fa1d5cc4" />
   <Project Path="src/Pifeon.AppHost/Pifeon.AppHost.csproj" Id="567fa755-586f-48d1-baa7-eef087f138f7" />
   <Project Path="src/Pifeon.Cli/Pifeon.Cli.csproj" Id="4548f381-eb98-4697-ba48-3aa58e028485" />
   <Project Path="src/Pifeon.Core/Pifeon.Core.csproj" Id="16c77369-114b-419b-a8a3-d9342f290f44" />
   <Project Path="src/Pifeon.Server/Pifeon.Server.csproj" Id="0101b4e0-8f33-4f85-9e59-8871f29588c1" />
   <Project Path="src/Pifeon.ServiceDefaults/Pifeon.ServiceDefaults.csproj" Id="a2057d66-820e-4395-a5b3-310d746b28df" />
-  <Project Path="tests/Pifeon.Tests/Pifeon.Tests.csproj" Id="a9b8465b-43e0-4ffc-915b-280cbc8bda01" />
 </Solution>

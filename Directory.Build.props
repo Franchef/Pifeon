@@ -1,0 +1,46 @@
+<Project>
+  <!-- 1. METADATI GENERALI DEL PROGETTO E DEL PACCHETTO -->
+  <PropertyGroup>
+    <VersionPrefix>1.0.0</VersionPrefix>
+    <Authors>Francesco Carbone</Authors>
+    <Company>Pifeon Community</Company>
+    <Product>Pifeon P2P File Transfer</Product>
+    <Copyright>Copyright © 2026 Francesco Carbone</Copyright>
+    <Description>Encrypted P2P file and folder transfer/synchronization software with zero cloud intermediaries.</Description>
+    
+    <!-- Licenza GNU GPLv3 e Repository GitHub Ufficiale -->
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/Franchef/Pifeon</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <!-- 2. CONFIGURAZIONI DEL COMPILATORE C# E TARGET FRAMEWORK -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- 3. OTTIMIZZAZIONI ED ANALISI PER NATIVE AOT & TRIMMING -->
+  <!-- Rileva a tempo di compilazione l'uso indesiderato di Reflection per AOT -->
+  <PropertyGroup>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- 4. CONTROLLO QUALITÀ DEL CODICE E ROSLYN ANALYZERS -->
+  <PropertyGroup>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+  </PropertyGroup>
+
+  <!-- 5. IMPOSTAZIONI DI CONTINUOUS INTEGRATION (CI) E DETERMINISMO -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+</Project>

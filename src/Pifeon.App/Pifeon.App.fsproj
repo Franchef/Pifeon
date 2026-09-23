@@ -3,6 +3,8 @@
 		<OutputType>WinExe</OutputType>
 		<TargetFramework>net10.0</TargetFramework>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
+		<!-- Assicura che tutte le DLL di dipendenza (inclusa FSharp.Core) siano disponibili per il task MSBuild di Avalonia -->
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 	</PropertyGroup>
 
 	<ItemGroup>

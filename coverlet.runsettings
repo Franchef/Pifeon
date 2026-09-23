@@ -11,6 +11,7 @@
 					<ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute,ExcludeFromCodeCoverageAttribute</ExcludeByAttribute>
 					<SingleHit>false</SingleHit>
 					<UseSourceLink>true</UseSourceLink>
+					<IncludeTestAssembly>False</IncludeTestAssembly>
 				</Configuration>
 			</DataCollector>
 		</DataCollectors>

@@ -1,0 +1,66 @@
+name: Build, Test & Code Coverage
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-and-test:
+    name: Build & Test (.NET 10)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # Necessario per aggiornare il branch dei badge (gh-pages / badges)
+      pull-requests: write # Permette di inserire commenti sulle PR
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET 10 SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Restore Dependencies
+      run: dotnet restore
+
+    - name: Build Solution
+      run: dotnet build --no-restore --configuration Release
+
+    # Esegue sia Unit Test che Integration Test generando i file cobertura
+    - name: Run Tests with Code Coverage
+      run: >
+        dotnet test --no-build --configuration Release --verbosity normal
+        --collect:"XPlat Code Coverage"
+        --results-directory ./coverage
+
+    # Genera la sintesi e genera il badge di copertura
+    - name: Code Coverage Summary & Threshold Check
+      uses: irongut/CodeCoverageSummary@v1.3.0
+      with:
+        filename: coverage/**/coverage.cobertura.xml
+        badge: true
+        fail_below_min: true
+        thresholds: '80 60'
+        format: markdown
+        output: file
+
+    # Genera i badge dinamici e li salva automaticamente nel branch 'badges'
+    - name: Generate Coverage Badge
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: cicirello/jacoco-badge-generator@v2
+      with:
+        jacoco-csv-file: coverage/**/coverage.cobertura.xml
+        badges-directory: .github/badges
+        generate-coverage-badge: true
+        coverage-badge-filename: coverage.svg
+
+    # Aggiunge il commento dettagliato della copertura sulle PR (se aperto da PR)
+    - name: Add PR Coverage Comment
+      if: github.event_name == 'pull_request'
+      uses: marocchino/sticky-pull-request-comment@v2
+      with:
+        path: code-coverage-results.md

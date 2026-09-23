@@ -1,7 +1,9 @@
 # 🐦 Pifeon
 
 [![License: GPL v3](https://shields.io)](https://gnu.org)
-[![.NET 9](https://shields.io)](https://microsoft.com)
+[![Build & Test Status](https://github.com/Franchef/Pifeon/actions/workflows/ci.yml/badge.svg)](https://github.com/Franchef/Pifeon/actions/workflows/ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![.NET 10](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
 [![Platform](https://shields.io)]()
 
 **Pifeon** (from *Pigeon* + *File*) is an open-source, cross-platform software designed for encrypted **Peer-to-Peer (P2P) file and folder transfer/synchronization**. It works directly between devices without cloud intermediaries, data logging, or mandatory user registration.

@@ -8,15 +8,18 @@ open Pifeon.App.ViewModels
 type ViewLocator() =
     interface IDataTemplate with
         
-        member this.Build(data) =
-            if isNull data then
-                null
-            else    
+        member this.Build(data: obj) =
+            match data with
+            | null -> null
+            | _ ->
                 let name = data.GetType().FullName.Replace("ViewModel", "View", StringComparison.Ordinal)
                 let typ = Type.GetType(name)
                 if isNull typ then
                     upcast TextBlock(Text = sprintf "Not Found: %s" name)
                 else
-                    downcast Activator.CreateInstance(typ)
+                    Activator.CreateInstance(typ) :?> Control
                 
-        member this.Match(data) = data :? ViewModelBase
+        member this.Match(data: obj) =
+            match data with
+            | null -> false
+            | _ -> data :? ViewModelBase

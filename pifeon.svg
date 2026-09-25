@@ -1,0 +1,44 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Gradienti e colori ufficiali Pifeon -->
+  <defs>
+    <!-- Gradiente primario Uccello (Rosso/Magenta/Viola) -->
+    <linearGradient id="pigeonGrad" x1="32" y1="224" x2="256" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#E6005C"/>
+      <stop offset="45%" stop-color="#FF2A6D"/>
+      <stop offset="100%" stop-color="#7F56D9"/>
+    </linearGradient>
+
+    <!-- Sfumatura per l'Ala Geometrica -->
+    <linearGradient id="wingGrad" x1="100" y1="100" x2="256" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF527B"/>
+      <stop offset="100%" stop-color="#9A6AFF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 1. Sfondo Quadrato Scuro (Deep Slate) -->
+  <rect width="256" height="256" rx="36" fill="#1A1F2C"/>
+
+  <!-- 2. Spazio Negativo: La "F" Bianca a Sinistra (Asta superiore ALLUNGATA fino a X=136) -->
+  <path d="M 32 32 H 136 V 72 H 72 V 112 H 108 V 152 H 72 V 224 H 32 Z" fill="#F8FAFC"/>
+
+  <!-- 3. Il Piccione Geometrico (Incastrato a Blocco da Basso-Sinistra ad Alto-Destra) -->
+  
+  <!-- CORPO PRINCIPALE E CODA (Pieno fino all'angolo Basso-Destra) -->
+  <path d="M 72 224 L 224 224 L 224 136 L 144 112 L 72 152 Z" fill="url(#pigeonGrad)"/>
+
+  <!-- ALA GEOMETRICA (Diagonale verso l'alto) -->
+  <path d="M 108 112 L 232 32 L 224 136 L 144 112 Z" fill="url(#wingGrad)" opacity="0.9"/>
+
+  <!-- TESTA E CORPO SUPERIORE -->
+  <path d="M 136 32 L 216 16 L 224 40 L 144 112 L 108 72 Z" fill="url(#pigeonGrad)"/>
+
+  <!-- BECCO: Fatto combaciare esattamente con l'Angolo in Alto a Destra (256, 0) -->
+  <path d="M 216 16 L 256 0 L 224 40 Z" fill="#FFC107"/>
+
+  <!-- Occhio minimalista in spazio negativo -->
+  <circle cx="202" cy="30" r="5" fill="#1A1F2C"/>
+
+  <!-- 4. Linee geometriche di taglio interno -->
+  <path d="M 108 72 L 232 32" stroke="#1A1F2C" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 144 112 L 224 136" stroke="#1A1F2C" stroke-width="3" stroke-linecap="round"/>
+</svg>

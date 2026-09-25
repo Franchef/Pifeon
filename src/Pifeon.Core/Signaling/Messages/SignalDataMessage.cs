@@ -1,3 +1,6 @@
-﻿namespace Pifeon.Core.Signaling.Messages;
+﻿using System.Diagnostics.CodeAnalysis;
 
+namespace Pifeon.Core.Signaling.Messages;
+
+[ExcludeFromCodeCoverage]
 public record SignalDataMessage(string Type, string Payload);

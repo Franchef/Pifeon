@@ -5,10 +5,44 @@
 			<DataCollector friendlyName="XPlat Code Coverage">
 				<Configuration>
 					<Format>cobertura</Format>
-					<!-- Esclude tutti i progetti e le classi che contengono la parola 'Tests' -->
-					<Exclude>[*Tests*]*,[*IntegrationTests*]*</Exclude>
-					<!-- Esclude codice auto-generato o non testabile se necessario -->
+
+					<!-- 1. Esclude Assembly e Namespace (Sintassi Coverlet) -->
+					<Exclude>
+						[*Tests*]*,
+						[*IntegrationTests*]*,
+						[*]*System.Runtime.CompilerServices*,
+						[*]*Microsoft.AspNetCore.OpenApi.Generated*,
+						[*]*Microsoft.AspNetCore.Http.Generated*
+					</Exclude>
+
+					<!-- 2. Esclude per attributi -->
 					<ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute,ExcludeFromCodeCoverageAttribute</ExcludeByAttribute>
+
+					<!-- 3. Esclude percorsi file generati dagli Source Generators di .NET / ASP.NET -->
+					<ExcludeByFile>
+						**/*.g.cs,
+						**/*.Generated.cs,
+						**/Microsoft.AspNetCore.OpenApi.SourceGenerators/**,
+						**/Microsoft.AspNetCore.Http.RequestDelegateGenerator/**
+					</ExcludeByFile>
+
+					<!-- 4. Filtri nativi per il motore Visual Studio CodeCoverage -->
+					<CodeCoverage>
+						<ModulePaths>
+							<Exclude>
+								<ModulePath>.*OpenApi.*</ModulePath>
+								<ModulePath>.*Generated.*</ModulePath>
+							</Exclude>
+						</ModulePaths>
+						<Functions>
+							<Exclude>
+								<Function>.*System\.Runtime\.CompilerServices.*</Function>
+								<Function>.*Microsoft\.AspNetCore\.OpenApi\.Generated.*</Function>
+								<Function>.*Microsoft\.AspNetCore\.Http\.Generated.*</Function>
+							</Exclude>
+						</Functions>
+					</CodeCoverage>
+
 					<SingleHit>false</SingleHit>
 					<UseSourceLink>true</UseSourceLink>
 					<IncludeTestAssembly>False</IncludeTestAssembly>

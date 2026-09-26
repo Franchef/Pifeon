@@ -1,7 +1,7 @@
 ﻿using Pifeon.Cli.Commands;
 using Spectre.Console.Cli;
 
-CommandApp app = new ();
+CommandApp app = new();
 
 app.Configure(config =>
 {

@@ -1,8 +1,8 @@
 ﻿using System.Diagnostics.CodeAnalysis;
-using Spectre.Console;
-using Spectre.Console.Cli;
 using Pifeon.Core;
 using Pifeon.Core.Abstractions;
+using Spectre.Console;
+using Spectre.Console.Cli;
 
 namespace Pifeon.Cli.Commands;
 

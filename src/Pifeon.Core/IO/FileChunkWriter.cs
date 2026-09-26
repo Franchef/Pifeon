@@ -6,7 +6,7 @@ public class FileChunkWriter : IDisposable
 
     public FileChunkWriter(string destinationPath)
     {
-        var directory = Path.GetDirectoryName(destinationPath);
+        string? directory = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
         {
             Directory.CreateDirectory(directory);

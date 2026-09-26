@@ -114,10 +114,10 @@ public sealed class WebSocketSignalingService : ISignalingService, IDisposable
                             break;
 
                         case "SIGNAL_DATA":
-                            if (doc.RootElement.TryGetProperty("payload", out JsonElement payloadProp))
-                            {
-                                OnSignalDataReceived?.Invoke(payloadProp.GetString() ?? "");
-                            }
+                            string payload = doc.RootElement.TryGetProperty("payload", out JsonElement payloadProp)
+                                ? payloadProp.GetString() ?? ""
+                                : "";
+                            OnSignalDataReceived?.Invoke(payload);
                             break;
                     }
                 }

@@ -12,7 +12,8 @@ namespace Pifeon.Core.Services;
 
 public class PifeonSender : ISender
 {
-    private readonly WebSocketSignalingService _signalingService;
+    private readonly ISignalingService _signalingService;
+    private readonly ITransportChannel _dataChannel;
     private bool _disposed;
 
     public string Code { get; private set; } = string.Empty;
@@ -21,10 +22,12 @@ public class PifeonSender : ISender
     public event Action? OnReceiverJoined;
     public event Action<long, long, string>? OnProgressChanged;
 
-    public PifeonSender(WebSocketSignalingService signalingService)
+    public PifeonSender(ISignalingService signalingService, ITransportChannel dataChannel)
     {
-        _signalingService = signalingService;
-        //_signalingService.OnReceiverJoined += () => OnReceiverJoined?.Invoke();
+        _signalingService = signalingService ?? throw new ArgumentNullException(nameof(signalingService));
+        _dataChannel = dataChannel ?? throw new ArgumentNullException(nameof(dataChannel));
+
+        _signalingService.OnReceiverJoined += () => OnReceiverJoined?.Invoke();
     }
 
     public async Task<string> InitializeSessionAsync(CancellationToken ct = default)
@@ -35,34 +38,31 @@ public class PifeonSender : ISender
 
     public async Task SendAsync(string sourcePath, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(Code))
+        if (!string.IsNullOrEmpty(Code))
         {
-            throw new InvalidOperationException("La sessione deve essere prima inizializzata invocando InitializeSessionAsync().");
+            // 1. Scansione del percorso locale (file o cartella con calcolo SHA-256)
+            var items = FolderScanner.ScanPath(sourcePath).ToList();
+            long totalBytes = items.Sum(i => i.FileSize);
+
+            // 2. Attesa della connessione del ricevitore via segnalazione
+            await _signalingService.WaitForReceiverAsync(ct);
+        }
+        else
+        {
+            throw new InvalidOperationException("Invocare prima InitializeSessionAsync().");
         }
 
-        // 1. Scansione del percorso (file singolo o cartella)
-        var items = FolderScanner.ScanPath(sourcePath).ToList();
-        long totalBytes = items.Sum(i => i.FileSize);
-
-        // 2. Attesa del ricevitore sul canale di segnalazione WebSocket
-        await _signalingService.WaitForReceiverAsync(ct);
-
-        // 3. Generazione chiavi ECDH e rilevamento IP tramite STUN
-        using var keyExchange = new KeyExchange();
-        IPEndPoint? publicIp = await StunClient.GetPublicIPEndPointAsync(ct: ct);
-
-        // 4. Avvio connessione socket P2P diretta e invio dati
-        using var p2pManager = new P2PConnectionManager();
-        // ... Logica di streaming dei chunk cifrati con AesGcmEncryption ed emettendo OnProgressChanged ...
+        // 3. Invio del Manifest e streaming dei dati sul canale di comunicazione astratto
+        // ... Logica di invio dei chunk tramite _dataChannel.SendAsync(...)
     }
 
     public async ValueTask DisposeAsync()
     {
         if (!_disposed)
         {
-            _signalingService.Dispose();
             _disposed = true;
+            await _dataChannel.DisposeAsync();
+            await _signalingService.DisposeAsync();
         }
-        await Task.CompletedTask;
     }
 }

@@ -1,7 +1,9 @@
 ﻿using System.Diagnostics.CodeAnalysis;
-using Pifeon.Core.Signaling;
 using Spectre.Console;
 using Spectre.Console.Cli;
+using Pifeon.Core;
+using Pifeon.Core.Abstractions;
+using Pifeon.Core.IO;
 
 namespace Pifeon.Cli.Commands;
 
@@ -10,7 +12,7 @@ public sealed class SendCommand : AsyncCommand<SendSettings>
     protected override async Task<int> ExecuteAsync(
         [NotNull] CommandContext context,
         [NotNull] SendSettings settings,
-        CancellationToken cancellationToken) // <-- Parametro aggiunto
+        CancellationToken cancellationToken)
     {
         string targetPath = Path.GetFullPath(settings.Path);
 
@@ -22,90 +24,110 @@ public sealed class SendCommand : AsyncCommand<SendSettings>
 
         AnsiConsole.MarkupLine("[bold blue]Pifeon Sender[/] - Preparazione invio per [underline]{0}[/]", targetPath);
 
-        ISignalingService signaling = new WebSocketSignalingService(settings.ServerUrl);
-
-        // Collega il token fornito da Spectre.Console con quello locale per gestire Annullamenti (CTRL+C)
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-        string code;
+        // 1. Scansione del percorso tramite FolderScanner
+        List<TransferItem> items;
         try
         {
-            code = await AnsiConsole.Status()
+            items = FolderScanner.ScanPath(targetPath).ToList();
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine("[bold red]Errore durante la scansione del percorso:[/] {0}", ex.Message);
+            return 1;
+        }
+
+        long totalBytes = items.Sum(i => i.FileSize);
+        AnsiConsole.MarkupLine("[dim]Elementi trovati: {0} ({1} bytes)[/]\n", items.Count, totalBytes);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        // 2. Utilizzo della Facade PifeonServer
+        await using IPifeonServer pifeonServer = new PifeonServer(customUrl: settings.ServerUrl);
+
+        // 3. Health Check preventivo
+        bool isServerHealthy = await AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .StartAsync("Verifica disponibilità del server...", async _ =>
+            {
+                return await pifeonServer.IsHealthyAsync(cts.Token);
+            });
+
+        if (!isServerHealthy)
+        {
+            AnsiConsole.MarkupLine("[bold red]Errore:[/] Impossibile raggiungere Pifeon.Server su [yellow]{0}[/]", pifeonServer.ServerUrl);
+            return 1;
+        }
+
+        // 4. Creazione della sessione e generazione del codice
+        ISender sender;
+        try
+        {
+            sender = await AnsiConsole.Status()
                 .Spinner(Spinner.Known.Dots)
-                .StartAsync("Connessione a Pifeon.Server...", async _ =>
+                .StartAsync("Connessione a Pifeon.Server e generazione codice...", async _ =>
                 {
-                    return await signaling.CreateSessionAsync(cts.Token);
+                    return await pifeonServer.CreateSessionAsync(cts.Token);
                 });
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine("[bold red]Errore di Connessione:[/] Impossibile contattare Pifeon.Server a [yellow]{0}[/]. ({1})",
-                settings.ServerUrl, ex.Message);
+            AnsiConsole.MarkupLine("[bold red]Errore durante la connessione:[/] {0}", ex.Message);
             return 1;
         }
 
-        // Mostra il codice a 6 cifre
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Panel(new Markup($"[bold green size=20]{code}[/]"))
+        await using (sender)
         {
-            Header = new PanelHeader(" Codice di Pairing (Valido 5 Minuti) "),
-            Padding = new Padding(3, 1, 3, 1),
-            Border = BoxBorder.Rounded
-        });
-        AnsiConsole.MarkupLine("[dim]In attesa che il destinatario inserisca il codice... (Premi CTRL+C per annullare)[/]\n");
+            // 5. Visualizzazione del Codice a 6 cifre
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Panel(new Markup($"[bold green size=20]{sender.Code}[/]"))
+            {
+                Header = new PanelHeader(" Codice di Pairing "),
+                Padding = new Padding(3, 1, 3, 1),
+                Border = BoxBorder.Rounded
+            });
+            AnsiConsole.MarkupLine("[dim]In attesa che il destinatario inserisca il codice... (Premi CTRL+C per annullare)[/]\n");
 
-        bool peerConnected = false;
-
-        try
-        {
-            await AnsiConsole.Progress()
-                .AutoClear(true)
-                .Columns(
-                    new TaskDescriptionColumn(),
-                    new ProgressBarColumn(),
-                    new RemainingTimeColumn()
-                )
-                .StartAsync(async progressContext =>
-                {
-                    ProgressTask timerTask = progressContext.AddTask("[yellow]Scadenza Sessione[/]", maxValue: 300);
-                    Task waitTask = signaling.WaitForReceiverAsync(cts.Token);
-
-                    while (!timerTask.IsFinished && !waitTask.IsCompleted)
+            // 6. Streaming dei dati con avanzamento in tempo reale
+            try
+            {
+                await AnsiConsole.Progress()
+                    .AutoClear(false)
+                    .Columns(
+                        new TaskDescriptionColumn(),
+                        new ProgressBarColumn(),
+                        new PercentageColumn(),
+                        new DownloadedColumn(),
+                        new TransferSpeedColumn(),
+                        new RemainingTimeColumn()
+                    )
+                    .StartAsync(async progressContext =>
                     {
-                        await Task.Delay(1000, cts.Token);
-                        timerTask.Increment(1);
-                    }
+                        ProgressTask transferTask = progressContext.AddTask("[green]Invio dati P2P[/]", maxValue: totalBytes);
 
-                    if (waitTask.IsCompletedSuccessfully)
-                    {
-                        peerConnected = true;
-                    }
-                });
-        }
-        catch (OperationCanceledException)
-        {
-            AnsiConsole.MarkupLine("\n[yellow]Operazione annullata dall'utente.[/]");
-            await signaling.DisconnectAsync(CancellationToken.None);
-            return 0;
-        }
+                        sender.OnProgressChanged += (bytesSent, total, currentFile) =>
+                        {
+                            transferTask.Value = bytesSent;
+                            if (!string.IsNullOrEmpty(currentFile))
+                            {
+                                transferTask.Description = $"[green]Invio:[/] {Path.GetFileName(currentFile)}";
+                            }
+                        };
 
-        if (!peerConnected)
-        {
-            AnsiConsole.MarkupLine("\n[bold red]Tempo scaduto![/] Nessun destinatario si è connesso alla sessione.");
-            await signaling.DisconnectAsync(CancellationToken.None);
-            return 1;
-        }
+                        await sender.SendAsync(targetPath, cts.Token);
+                    });
 
-        AnsiConsole.MarkupLine("[bold green]✔ Receiver connesso![/] Inizio fase di Handshake e streaming P2P...");
-
-        try
-        {
-            await Task.Delay(1500, cts.Token);
-            AnsiConsole.MarkupLine("[bold green]✔ Trasferimento completato con successo![/]");
-        }
-        finally
-        {
-            await signaling.DisconnectAsync(CancellationToken.None);
+                AnsiConsole.MarkupLine("\n[bold green]✔ Trasferimento completato con successo![/]");
+            }
+            catch (OperationCanceledException)
+            {
+                AnsiConsole.MarkupLine("\n[yellow]Trasferimento interrotto dall'utente.[/]");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine("\n[bold red]Errore durante il trasferimento P2P:[/] {0}", ex.Message);
+                return 1;
+            }
         }
 
         return 0;

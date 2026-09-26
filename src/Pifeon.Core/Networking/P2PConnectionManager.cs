@@ -3,9 +3,10 @@ using System.Net.Sockets;
 
 namespace Pifeon.Core.Networking;
 
-public class P2PConnectionManager : IDisposable
+public class P2PConnectionManager : IAsyncDisposable, IDisposable
 {
     private Socket? _peerSocket;
+    private bool _disposed;
 
     public bool IsConnected => _peerSocket != null && _peerSocket.Connected;
 
@@ -52,7 +53,7 @@ public class P2PConnectionManager : IDisposable
     }
 
     /// <summary>
-    /// Invia un buffer di dati al peer con prefisso di lunghezza per evitare frammentazione TCP.
+    /// Invia un buffer di dati al peer con prefisso di lunghezza (Big Endian) per evitare frammentazione TCP.
     /// </summary>
     public async Task SendBytesAsync(ReadOnlyMemory<byte> data, CancellationToken ct = default)
     {
@@ -69,7 +70,7 @@ public class P2PConnectionManager : IDisposable
     }
 
     /// <summary>
-    /// Riceve esattamente il pacchetto inviato dal peer.
+    /// Riceve esattamente il pacchetto inviato dal peer leggendo prima il prefisso di lunghezza.
     /// </summary>
     public async Task<byte[]> ReceiveBytesAsync(CancellationToken ct = default)
     {
@@ -103,8 +104,38 @@ public class P2PConnectionManager : IDisposable
         }
     }
 
+    public async ValueTask DisposeAsync()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+
+            if (_peerSocket != null)
+            {
+                if (_peerSocket.Connected)
+                {
+                    try
+                    {
+                        _peerSocket.Shutdown(SocketShutdown.Both);
+                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                        await _peerSocket.DisconnectAsync(reuseSocket: false, cts.Token);
+                    }
+                    catch
+                    {
+                        // In fase di dispose ignoriamo eventuali eccezioni di rete
+                    }
+                }
+
+                _peerSocket.Dispose();
+                _peerSocket = null;
+            }
+
+            GC.SuppressFinalize(this);
+        }
+    }
+
     public void Dispose()
     {
-        _peerSocket?.Dispose();
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }

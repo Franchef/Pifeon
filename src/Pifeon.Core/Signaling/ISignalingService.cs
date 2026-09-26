@@ -1,38 +1,52 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Reflection.Metadata;
+using System.Runtime.ConstrainedExecution;
+using System.Runtime.Intrinsics.Arm;
 using System.Text;
+using Pifeon.Core.Signaling.Messages;
 
 namespace Pifeon.Core.Signaling;
 
-public interface ISignalingService
+public interface ISignalingService : IAsyncDisposable, IDisposable
 {
     /// <summary>
-    /// Evento sollevato quando si riceve un messaggio di segnalazione dal peer remoto (SDP / ICE Candidates).
+    /// Evento sollevato quando il ricevitore inserisce il codice e si unisce alla sessione.
+    /// </summary>
+    event Action? OnReceiverJoined;
+
+    /// <summary>
+    /// Evento sollevato quando arrivano dati di segnalazione P2P (es. payload SDP / ICE candidates).
     /// </summary>
     event Action<string>? OnSignalDataReceived;
 
     /// <summary>
-    /// Avvia la sessione lato Mittente e restituisce il codice a 6 cifre generato dal server.
+    /// Apre la connessione WebSocket con il server di segnalazione.
     /// </summary>
-    Task<string> CreateSessionAsync(CancellationToken cancellationToken = default);
+    Task ConnectAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Attende che il Ricevitore si connetta inserendo il codice a 6 cifre.
+    /// Richiede al server la creazione di una nuova sessione e restituisce il codice a 6 cifre.
     /// </summary>
-    Task WaitForReceiverAsync(CancellationToken cancellationToken = default);
+    Task<string> CreateSessionAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Si connette a una sessione esistente lato Ricevitore usando il codice a 6 cifre.
+    /// Si unisce a una sessione esistente utilizzando il codice fornito dal mittente.
     /// </summary>
-    Task<bool> JoinSessionAsync(string code, CancellationToken cancellationToken = default);
+    Task JoinSessionAsync(string code, CancellationToken ct = default);
 
     /// <summary>
-    /// Invia dati di segnalazione P2P (es. ICE candidates o SDP offer/answer) alla controparte.
+    /// Attende che il ricevitore si sia connesso alla sessione.
     /// </summary>
-    Task SendSignalDataAsync(string payload, CancellationToken cancellationToken = default);
+    Task WaitForReceiverAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Invia un payload di segnalazione (es. chiave pubblica o coordinate di rete) al peer connesso.
+    /// </summary>
+    Task SendSignalDataAsync(string payload, CancellationToken ct = default);
 
     /// <summary>
     /// Chiude la connessione con il server di segnalazione.
     /// </summary>
-    Task DisconnectAsync(CancellationToken cancellationToken = default);
+    Task DisconnectAsync(CancellationToken ct = default);
 }

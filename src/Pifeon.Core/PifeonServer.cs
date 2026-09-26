@@ -3,57 +3,39 @@ using System.Collections.Generic;
 using System.Text;
 using Pifeon.Core.Abstractions;
 using Pifeon.Core.Configuration;
+using Pifeon.Core.Networking;
 using Pifeon.Core.Services;
 using Pifeon.Core.Signaling;
 
 namespace Pifeon.Core;
 
-public class PifeonServer : IPifeonServer
+public sealed class PifeonServer : IPifeonServer
 {
-    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private readonly HttpClient _httpClient;
+    private readonly bool _ownsHttpClient;
+    private bool _disposed;
 
     public string ServerUrl { get; set; }
 
-    /// <summary>
-    /// Inizializza il server applicando la gerarchia delle configurazioni.
-    /// </summary>
-    public PifeonServer(string? customUrl = null, string? appSettingsUrl = null)
+    public PifeonServer(string? customUrl = null, string? appSettingsUrl = null, HttpClient? httpClient = null)
     {
         ServerUrl = PifeonConfigurationResolver.ResolveSignalingUrl(customUrl, appSettingsUrl);
-    }
-
-    /// <summary>
-    /// Esegue un ping/health-check verso l'endpoint del server.
-    /// Convertiamo temporaneamente 'ws://' / 'wss://' in 'http://' / 'https://' per chiamare /health.
-    /// </summary>
-    public async Task<bool> IsHealthyAsync(CancellationToken ct = default)
-    {
-        try
-        {
-            var httpBuilder = new UriBuilder(ServerUrl);
-            httpBuilder.Scheme = httpBuilder.Scheme switch
-            {
-                "wss" => "https",
-                "ws" => "http",
-                _ => httpBuilder.Scheme
-            };
-
-            // Assumendo che il server di segnalazione esponga l'endpoint /health
-            httpBuilder.Path = "/health";
-
-            using HttpResponseMessage response = await HttpClient.GetAsync(httpBuilder.Uri, ct);
-            return response.IsSuccessStatusCode;
-        }
-        catch
-        {
-            return false;
-        }
+        _ownsHttpClient = httpClient == null;
+        _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
     }
 
     public async Task<ISender> CreateSessionAsync(CancellationToken ct = default)
     {
-        var signalingService = new WebSocketSignalingService(ServerUrl);
-        var sender = new PifeonSender(signalingService);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        // 1. Creiamo il canale di trasporto concreto
+        WebSocketTransportChannel transportChannel = await WebSocketTransportChannel.ConnectAsync(ServerUrl, ct);
+
+        // 2. Iniettiamo il canale nel servizio di segnalazione
+        var signalingService = new WebSocketSignalingService(transportChannel);
+
+        // 3. Iniettiamo sia la segnalazione sia il canale di trasporto in PifeonSender
+        var sender = new PifeonSender(signalingService, transportChannel);
 
         await sender.InitializeSessionAsync(ct);
         return sender;
@@ -61,10 +43,77 @@ public class PifeonServer : IPifeonServer
 
     public async Task<IReceiver> JoinSessionAsync(string code, CancellationToken ct = default)
     {
-        var signalingService = new WebSocketSignalingService(ServerUrl);
-        var receiver = new PifeonReceiver(signalingService);
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
+        WebSocketTransportChannel transportChannel = await WebSocketTransportChannel.ConnectAsync(ServerUrl, ct);
+        var signalingService = new WebSocketSignalingService(transportChannel);
+
+        var receiver = new PifeonReceiver(signalingService, transportChannel);
         await receiver.ConnectAndGetManifestAsync(code, ct);
+
         return receiver;
+    }
+
+    public async Task<bool> IsHealthyAsync(CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        try
+        {
+            // Se inizia con "wss" o "https" usiamo "https", altrimenti "http"
+            bool isSecure = ServerUrl.StartsWith("wss", StringComparison.OrdinalIgnoreCase) ||
+                            ServerUrl.StartsWith("https", StringComparison.OrdinalIgnoreCase);
+
+            var httpBuilder = new UriBuilder(ServerUrl)
+            {
+                Scheme = isSecure ? "https" : "http",
+                Path = "/health"
+            };
+
+            using HttpResponseMessage response = await _httpClient.GetAsync(httpBuilder.Uri, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+    //public async Task<bool> IsHealthyAsync(CancellationToken ct = default)
+    //{
+    //    ObjectDisposedException.ThrowIf(_disposed, this);
+
+    //    try
+    //    {
+    //        var httpBuilder = new UriBuilder(ServerUrl)
+    //        {
+    //            Scheme = ServerUrl.StartsWith("wss", StringComparison.OrdinalIgnoreCase) ? "https" : "http",
+    //            Path = "/health"
+    //        };
+
+    //        using HttpResponseMessage response = await _httpClient.GetAsync(httpBuilder.Uri, ct);
+    //        return response.IsSuccessStatusCode;
+    //    }
+    //    catch
+    //    {
+    //        return false;
+    //    }
+    //}
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            if (_ownsHttpClient)
+            {
+                _httpClient.Dispose();
+            }
+        }
+        await Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }

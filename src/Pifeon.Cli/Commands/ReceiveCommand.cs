@@ -1,7 +1,8 @@
 ﻿using System.Diagnostics.CodeAnalysis;
-using Pifeon.Core.Signaling;
 using Spectre.Console;
 using Spectre.Console.Cli;
+using Pifeon.Core;
+using Pifeon.Core.Abstractions;
 
 namespace Pifeon.Cli.Commands;
 
@@ -10,7 +11,7 @@ public sealed class ReceiveCommand : AsyncCommand<ReceiveSettings>
     protected override async Task<int> ExecuteAsync(
         [NotNull] CommandContext context,
         [NotNull] ReceiveSettings settings,
-        CancellationToken cancellationToken) // <-- Parametro aggiunto
+        CancellationToken cancellationToken)
     {
         string destFolder = Path.GetFullPath(settings.DestinationPath);
 
@@ -21,6 +22,7 @@ public sealed class ReceiveCommand : AsyncCommand<ReceiveSettings>
 
         string code = settings.Code ?? string.Empty;
 
+        // Prompt interattivo se il codice non è fornito negli argomenti
         if (string.IsNullOrWhiteSpace(code))
         {
             code = (await AnsiConsole.AskAsync<string>("Inserisci il [green]codice di pairing a 6 cifre[/]:", cancellationToken)).Trim();
@@ -34,41 +36,95 @@ public sealed class ReceiveCommand : AsyncCommand<ReceiveSettings>
 
         AnsiConsole.MarkupLine("[bold blue]Pifeon Receiver[/] - Destinazione: [underline]{0}[/]", destFolder);
 
-        ISignalingService signaling = new WebSocketSignalingService(settings.ServerUrl);
-        bool joined = false;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
+        // 1. Utilizzo della Facade PifeonServer
+        await using IPifeonServer pifeonServer = new PifeonServer(customUrl: settings.ServerUrl);
+
+        // 2. Health Check preventivo
+        bool isServerHealthy = await AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .StartAsync("Verifica disponibilità del server...", async _ =>
+            {
+                return await pifeonServer.IsHealthyAsync(cts.Token);
+            });
+
+        if (!isServerHealthy)
+        {
+            AnsiConsole.MarkupLine("[bold red]Errore:[/] Impossibile raggiungere Pifeon.Server su [yellow]{0}[/]", pifeonServer.ServerUrl);
+            return 1;
+        }
+
+        // 3. Connessione alla sessione
+        IReceiver receiver;
         try
         {
-            await AnsiConsole.Status()
+            receiver = await AnsiConsole.Status()
                 .Spinner(Spinner.Known.Dots)
-                .StartAsync($"Verifica codice [green]{code}[/] con il server...", async _ =>
+                .StartAsync($"Verifica codice [green]{code}[/] e connessione al peer...", async _ =>
                 {
-                    joined = await signaling.JoinSessionAsync(code, cancellationToken);
+                    return await pifeonServer.JoinSessionAsync(code, cts.Token);
                 });
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine("[bold red]Errore di Connessione:[/] Impossibile contattare Pifeon.Server. ({0})", ex.Message);
+            AnsiConsole.MarkupLine("[bold red]Errore di connessione o codice non valido:[/] {0}", ex.Message);
             return 1;
         }
 
-        if (!joined)
+        await using (receiver)
         {
-            AnsiConsole.MarkupLine("[bold red]Codice non valido o sessione scaduta![/]");
-            await signaling.DisconnectAsync(CancellationToken.None);
-            return 1;
-        }
+            AnsiConsole.MarkupLine("[bold green]✔ Connesso al peer![/] Avvio ricezione dati P2P...");
 
-        AnsiConsole.MarkupLine("[bold green]✔ Sessione trovata![/] Handshake in corso e avvio ricezione dati P2P...");
+            // 4. Download P2P con Progress Bar
+            try
+            {
+                await AnsiConsole.Progress()
+                    .AutoClear(false)
+                    .Columns(
+                        new TaskDescriptionColumn(),
+                        new ProgressBarColumn(),
+                        new PercentageColumn(),
+                        new DownloadedColumn(),
+                        new TransferSpeedColumn(),
+                        new RemainingTimeColumn()
+                    )
+                    .StartAsync(async progressContext =>
+                    {
+                        ProgressTask downloadTask = progressContext.AddTask("[green]Download P2P[/]", maxValue: 100);
 
-        try
-        {
-            await Task.Delay(1500, cancellationToken);
-            AnsiConsole.MarkupLine("[bold green]✔ Download completato con successo![/]");
-        }
-        finally
-        {
-            await signaling.DisconnectAsync(CancellationToken.None);
+                        // Tracciamento avanzamento tramite l'evento del Receiver
+                        receiver.OnProgressChanged += (bytesReceived, totalBytes, currentFile) =>
+                        {
+                            if (totalBytes > 0)
+                            {
+                                downloadTask.MaxValue = totalBytes;
+                            }
+
+                            downloadTask.Value = bytesReceived;
+
+                            if (!string.IsNullOrEmpty(currentFile))
+                            {
+                                downloadTask.Description = $"[green]Ricezione:[/] {Path.GetFileName(currentFile)}";
+                            }
+                        };
+
+                        // Avvio effettivo del download verso la cartella di destinazione
+                        await receiver.ReceiveToDirectoryAsync(destFolder, cts.Token);
+                    });
+
+                AnsiConsole.MarkupLine("\n[bold green]✔ Download completato con successo![/]");
+            }
+            catch (OperationCanceledException)
+            {
+                AnsiConsole.MarkupLine("\n[yellow]Download interrotto dall'utente.[/]");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine("\n[bold red]Errore durante la ricezione P2P:[/] {0}", ex.Message);
+                return 1;
+            }
         }
 
         return 0;

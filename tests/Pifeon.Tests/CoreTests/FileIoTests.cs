@@ -61,8 +61,13 @@ public sealed class FileIoTests : IDisposable
     public void Dispose()
     {
         if (File.Exists(_tempSourceFile))
+        {
             File.Delete(_tempSourceFile);
+        }
+
         if (File.Exists(_tempDestinationFile))
+        {
             File.Delete(_tempDestinationFile);
+        }
     }
 }

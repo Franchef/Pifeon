@@ -56,4 +56,62 @@ public class CryptographyTests
         // Assert: Verifichiamo l'eccezione esatta lanciata da AesGcm
         Assert.Throws<AuthenticationTagMismatchException>(() => AesGcmEncryption.Decrypt(encryptedPackage, key));
     }
+
+    [Fact]
+    public void AesGcmEncryption_DecryptWithWrongKey_ShouldThrowCryptographicException()
+    {
+        // Arrange
+        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] wrongKey = RandomNumberGenerator.GetBytes(32);
+        byte[] originalData = "Dati integri"u8.ToArray();
+        byte[] encryptedPackage = AesGcmEncryption.Encrypt(originalData, key);
+        // Assert: Verifichiamo l'eccezione esatta lanciata da AesGcm
+        Assert.Throws<AuthenticationTagMismatchException>(() => AesGcmEncryption.Decrypt(encryptedPackage, wrongKey));
+    }
+
+    [Fact]
+    public void Encrypt_ShouldThrowArgumentException_WhenKeyLengthIsNot32Bytes()
+    {
+        // Arrange
+        byte[] invalidKey = new byte[16]; // 128-bit anziché 256-bit
+        byte[] plainText = "Test Payload"u8.ToArray();
+
+        // Act & Assert
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            AesGcmEncryption.Encrypt(plainText, invalidKey));
+
+        Assert.Equal("key", exception.ParamName);
+        Assert.Contains("La chiave AES deve essere di 256 bit", exception.Message);
+    }
+
+    [Fact]
+    public void Decrypt_ShouldThrowArgumentException_WhenKeyLengthIsNot32Bytes()
+    {
+        // Arrange
+        byte[] invalidKey = new byte[24]; // 192-bit anziché 256-bit
+        byte[] dummyEncryptedPackage = new byte[30]; // Pacchetto valido per lunghezza
+
+        // Act & Assert
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            AesGcmEncryption.Decrypt(dummyEncryptedPackage, invalidKey));
+
+        Assert.Equal("key", exception.ParamName);
+        Assert.Contains("La chiave AES deve essere di 256 bit", exception.Message);
+    }
+
+    [Fact]
+    public void Decrypt_ShouldThrowArgumentException_WhenEncryptedPackageIsTooShort()
+    {
+        // Arrange
+        byte[] validKey = new byte[32]; // Chiave corretta da 32 byte
+        byte[] tooShortPackage = new byte[27]; // Minimo richiesto: Nonce (12) + Tag (16) = 28 byte
+
+        // Act & Assert
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            AesGcmEncryption.Decrypt(tooShortPackage, validKey));
+
+        Assert.Equal("encryptedPackage", exception.ParamName);
+        Assert.Contains("Dati cifrati non validi o troppo corti.", exception.Message);
+    }
+
 }

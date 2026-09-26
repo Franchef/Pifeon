@@ -1,6 +1,6 @@
 ﻿namespace Pifeon.Core.Abstractions;
 
-public interface IPifeonServer
+public interface IPifeonServer : IAsyncDisposable, IDisposable
 {
     /// <summary>
     /// L'URL corrente del server di segnalazione risolto o impostato manualmente.

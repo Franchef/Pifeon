@@ -6,8 +6,17 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<InvariantGlobalization>true</InvariantGlobalization>
 		<PublishAot>true</PublishAot>
+		<!-- Garantisce che il codice generato dai Source Generators contenga gli attributi [GeneratedCode] riconosciuti da VS -->
+		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+		<CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)GeneratedFiles</CompilerGeneratedFilesOutputPath>
+		<!-- Istruisce i Source Generator di ASP.NET Core e Roslyn a marcare 
+         i file emessi con [ExcludeFromCodeCoverage] / [GeneratedCode] -->
+		<InjectAttributeForGeneratedCode>true</InjectAttributeForGeneratedCode>
 	</PropertyGroup>
-
+	<!-- Esclude automaticamente i file di integrazione generati da OpenAPI e Minimal API -->
+	<ItemGroup>
+		<AssemblyAttribute Include="System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute" />
+	</ItemGroup>
 	<ItemGroup>
 	  <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
 	</ItemGroup>

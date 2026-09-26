@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+	<!-- 1. Configurazione per dotnet test / Coverlet (CI/CD) -->
+	<DataCollectionRunSettings>
+		<DataCollectors>
+			<DataCollector friendlyName="XPlat Code Coverage">
+				<Configuration>
+					<Format>cobertura</Format>
+					<Exclude>[*Tests*]*,[*IntegrationTests*]*,[*]*System.Runtime.CompilerServices*,[*]*Microsoft.AspNetCore.OpenApi.Generated*,[*]*Microsoft.AspNetCore.Http.Generated*</Exclude>
+					<ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute,ExcludeFromCodeCoverageAttribute</ExcludeByAttribute>
+					<ExcludeByFile>**/*.g.cs,**/*.Generated.cs</ExcludeByFile>
+					<SingleHit>false</SingleHit>
+					<UseSourceLink>true</UseSourceLink>
+					<IncludeTestAssembly>False</IncludeTestAssembly>
+				</Configuration>
+			</DataCollector>
+		</DataCollectors>
+	</DataCollectionRunSettings>
+
+	<!-- 2. Configurazione nativa per Visual Studio GUI (Enterprise / Professional / Community) -->
+	<CodeCoverage>
+		<!-- Esclude i namespace / funzioni sia di sistema che generati -->
+		<Functions>
+			<Exclude>
+				<Function>.*System\.Runtime\.CompilerServices.*</Function>
+				<Function>.*Microsoft\.AspNetCore\.OpenApi\.Generated.*</Function>
+				<Function>.*Microsoft\.AspNetCore\.Http\.Generated.*</Function>
+			</Exclude>
+		</Functions>
+
+		<!-- Esclude per attributi generati -->
+		<Attributes>
+			<Exclude>
+				<Attribute>^System\.Diagnostics\.CodeAnalysis\.ExcludeFromCodeCoverageAttribute$</Attribute>
+				<Attribute>^System\.CodeDom\.Compiler\.GeneratedCodeAttribute$</Attribute>
+				<Attribute>^System\.Runtime\.CompilerServices\.CompilerGeneratedAttribute$</Attribute>
+			</Exclude>
+		</Attributes>
+
+		<!-- Esclude sorgenti/file generati da Roslyn / Source Generators -->
+		<SourceFiles>
+			<Exclude>
+				<SourceFile>.*\.g\.cs$</SourceFile>
+				<SourceFile>.*\.Generated\.cs$</SourceFile>
+			</Exclude>
+		</SourceFiles>
+	</CodeCoverage>
+</RunSettings>

@@ -41,7 +41,7 @@ public class PifeonServer : IPifeonServer
             // Assumendo che il server di segnalazione esponga l'endpoint /health
             httpBuilder.Path = "/health";
 
-            using var response = await HttpClient.GetAsync(httpBuilder.Uri, ct);
+            using HttpResponseMessage response = await HttpClient.GetAsync(httpBuilder.Uri, ct);
             return response.IsSuccessStatusCode;
         }
         catch

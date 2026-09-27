@@ -28,7 +28,7 @@ public sealed class SendCommand : AsyncCommand<SendSettings>
         List<TransferItem> items;
         try
         {
-            items = FolderScanner.ScanPath(targetPath).ToList();
+            items = await FolderScanner.ScanPath(targetPath).ToListAsync(cancellationToken);
         }
         catch (Exception ex)
         {

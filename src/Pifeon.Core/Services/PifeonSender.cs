@@ -41,7 +41,7 @@ public class PifeonSender : ISender
         if (!string.IsNullOrEmpty(Code))
         {
             // 1. Scansione del percorso locale (file o cartella con calcolo SHA-256)
-            var items = FolderScanner.ScanPath(sourcePath).ToList();
+            List<TransferItem> items = await FolderScanner.ScanPath(sourcePath).ToListAsync(ct);
             long totalBytes = items.Sum(i => i.FileSize);
 
             // 2. Attesa della connessione del ricevitore via segnalazione

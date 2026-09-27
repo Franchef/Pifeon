@@ -58,6 +58,21 @@ public sealed class FileIoTests : IDisposable
         Assert.Equal(sourceHash, destHash);
     }
 
+    [Fact]
+    public async Task FileNotFound_ShouldThrowExceptionAsync()
+    {
+        // Arrange: Assicurati che il file di origine non esista
+        if (File.Exists(_tempSourceFile))
+        {
+            File.Delete(_tempSourceFile);
+        }
+
+        // Act & Assert: Verifica che venga sollevata un'eccezione quando si tenta di calcolare l'hash di un file inesistente
+        await Assert.ThrowsAsync<FileNotFoundException>(async () =>
+        {
+            await FileHasher.ComputeHashAsync(_tempSourceFile);
+        });
+    }
     public void Dispose()
     {
         if (File.Exists(_tempSourceFile))

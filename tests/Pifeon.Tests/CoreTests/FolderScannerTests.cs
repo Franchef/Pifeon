@@ -7,7 +7,7 @@ using Pifeon.Core.IO;
 
 namespace Pifeon.Tests.CoreTests;
 
-public class FolderScannerTests : IDisposable
+public sealed class FolderScannerTests : IDisposable
 {
     private readonly string _testDirectory;
 
@@ -127,8 +127,7 @@ public class FolderScannerTests : IDisposable
 
     private static string ComputeExpectedSha256(byte[] data)
     {
-        using var sha256 = SHA256.Create();
-        byte[] hash = sha256.ComputeHash(data);
+        byte[] hash = SHA256.HashData(data);
         return Convert.ToHexStringLower(hash);
     }
 

@@ -3,7 +3,7 @@ using System.Net.Sockets;
 
 namespace Pifeon.Core.Networking;
 
-public class P2PConnectionManager : IAsyncDisposable, IDisposable
+public sealed class P2PConnectionManager : IAsyncDisposable, IDisposable
 {
     private Socket? _peerSocket;
     private bool _disposed;

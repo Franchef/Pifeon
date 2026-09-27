@@ -84,7 +84,7 @@ public sealed class WebSocketSignalingService : ISignalingService
     {
         if (_listenCts != null)
         {
-            _listenCts.Cancel();
+            await _listenCts.CancelAsync();
             _listenCts.Dispose();
             _listenCts = null;
         }
@@ -157,7 +157,7 @@ public sealed class WebSocketSignalingService : ISignalingService
         {
             _disposed = true;
 
-            await DisconnectAsync();
+            await DisconnectAsync(CancellationToken.None);
             await _channel.DisposeAsync();
 
             GC.SuppressFinalize(this);

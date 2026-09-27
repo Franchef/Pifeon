@@ -1,6 +1,6 @@
 ﻿namespace Pifeon.Core.IO;
 
-public class FileChunkReader : IDisposable
+public sealed class FileChunkReader : IDisposable
 {
     private readonly FileStream _fileStream;
     public const int DefaultChunkSize = 1024 * 1024; // 1 MB per chunk

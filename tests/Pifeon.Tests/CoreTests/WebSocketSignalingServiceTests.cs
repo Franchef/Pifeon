@@ -113,7 +113,7 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
     {
         // Arrange
         using var cts = new CancellationTokenSource();
-        cts.Cancel(); // Annullamento immediato
+        await cts.CancelAsync(); // Annullamento immediato
 
         // Act & Assert
         await Assert.ThrowsAsync<TaskCanceledException>(() => _sut.WaitForReceiverAsync(cts.Token));

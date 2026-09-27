@@ -1,6 +1,6 @@
 ﻿namespace Pifeon.Core.IO;
 
-public class FileChunkWriter : IDisposable
+public sealed class FileChunkWriter : IDisposable
 {
     private readonly FileStream _fileStream;
 

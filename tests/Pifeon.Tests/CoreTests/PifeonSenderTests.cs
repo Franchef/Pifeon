@@ -94,9 +94,10 @@ public sealed class PifeonSenderTests : IDisposable
     [Fact]
     public async Task SendAsync_ShouldThrowInvalidOperationException_WhenCodeIsEmpty()
     {
+        await Task.Yield(); // Ensure the method is truly asynchronous
         // Arrange: Non invochiamo InitializeSessionAsync, quindi Code è stringa vuota
         string sampleFilePath = Path.Combine(_testDirectory, "test.txt");
-        File.WriteAllText(sampleFilePath, "Dummy content");
+        await File.WriteAllTextAsync(sampleFilePath, "Dummy content");
 
         // Act & Assert
         InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -123,7 +124,7 @@ public sealed class PifeonSenderTests : IDisposable
 
         // Prepariamo un file reale per la scansione tramite FolderScanner
         string sampleFilePath = Path.Combine(_testDirectory, "data.bin");
-        File.WriteAllBytes(sampleFilePath, new byte[] { 0x01, 0x02, 0x03, 0x04 });
+        await File.WriteAllBytesAsync(sampleFilePath, new byte[] { 0x01, 0x02, 0x03, 0x04 });
 
         // Act
         await _sut.InitializeSessionAsync(cts.Token);

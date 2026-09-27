@@ -26,7 +26,7 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        _cts.Cancel();
+        await _cts.CancelAsync();
         _httpListener?.Stop();
         _httpListener?.Close();
         _cts.Dispose();
@@ -62,7 +62,7 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
         byte[] data = "Hello"u8.ToArray();
 
         // Act & Assert
-        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => channel.SendAsync(data).AsTask());
+        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => channel.SendAsync(data, _cts.Token).AsTask());
         Assert.Contains("Il canale WebSocket non è connesso", ex.Message);
     }
 
@@ -75,7 +75,7 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
         byte[] buffer = new byte[1024];
 
         // Act & Assert
-        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => channel.ReceiveAsync(buffer).AsTask());
+        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => channel.ReceiveAsync(buffer, _cts.Token).AsTask());
         Assert.Contains("Il canale WebSocket non è connesso", ex.Message);
     }
 
@@ -86,7 +86,7 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
         string invalidUrl = "ws://localhost:59999/invalid";
 
         // Act & Assert
-        await Assert.ThrowsAsync<WebSocketException>(() => WebSocketTransportChannel.ConnectAsync(invalidUrl));
+        await Assert.ThrowsAsync<WebSocketException>(() => WebSocketTransportChannel.ConnectAsync(invalidUrl, _cts.Token));
     }
 
     #endregion
@@ -121,25 +121,25 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
                 await serverSocket.ReceiveAsync(closeBuffer, CancellationToken.None);
                 await serverSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed by server", CancellationToken.None);
             }
-        });
+        }, _cts.Token);
 
         // Act 1: Connessione
-        WebSocketTransportChannel channel = await WebSocketTransportChannel.ConnectAsync(_serverUrl);
+        WebSocketTransportChannel channel = await WebSocketTransportChannel.ConnectAsync(_serverUrl, _cts.Token);
         Assert.True(channel.IsConnected);
 
         // Act 2: Invia Dati
         byte[] payload = "Hello Pifeon"u8.ToArray();
-        await channel.SendAsync(payload);
+        await channel.SendAsync(payload, _cts.Token);
 
         // Act 3: Riceve Dati
         byte[] receiveBuffer = new byte[1024];
-        int bytesRead = await channel.ReceiveAsync(receiveBuffer);
+        int bytesRead = await channel.ReceiveAsync(receiveBuffer, _cts.Token);
 
         Assert.Equal(payload.Length, bytesRead);
         Assert.Equal(payload, receiveBuffer[..bytesRead]);
 
         // Act 4: Chiusura
-        await channel.CloseAsync();
+        await channel.CloseAsync(_cts.Token);
         await serverTask;
 
         // Act 5: Teardown
@@ -158,13 +158,13 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
 
             // Invia il frame di chiusura
             await serverSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "Server closing", CancellationToken.None);
-        });
+        }, _cts.Token);
 
-        WebSocketTransportChannel channel = await WebSocketTransportChannel.ConnectAsync(_serverUrl);
+        WebSocketTransportChannel channel = await WebSocketTransportChannel.ConnectAsync(_serverUrl, _cts.Token);
         byte[] buffer = new byte[1024];
 
         // Act
-        int bytesRead = await channel.ReceiveAsync(buffer);
+        int bytesRead = await channel.ReceiveAsync(buffer, _cts.Token);
 
         // Assert: Se il messaggio ricevuto è Close, il metodo restituisce 0 e chiama CloseAsync
         Assert.Equal(0, bytesRead);

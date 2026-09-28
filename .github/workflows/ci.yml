@@ -30,13 +30,14 @@ jobs:
     - name: Build Solution
       run: dotnet build --no-restore --configuration Release
 
-    # Esegue sia Unit Test che Integration Test generando i file cobertura
+    # Esegue sia Unit Test che Integration Test generando i file cobertura con MTP
     - name: Run Tests with Code Coverage
       run: >
         dotnet test --no-build --configuration Release --verbosity normal
-        --collect:"XPlat Code Coverage"
-        --settings .runsettings
-        --results-directory ./coverage
+        --
+        --coverage
+        --coverage-output-format cobertura
+        --coverage-output ./coverage/coverage.cobertura.xml
 
     # Genera la sintesi e genera il badge di copertura
     - name: Code Coverage Summary & Threshold Check

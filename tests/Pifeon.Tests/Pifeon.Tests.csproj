@@ -5,9 +5,11 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<IsPackable>false</IsPackable>
-		<OutputType>Exe</OutputType>
 		<IsTestProject>true</IsTestProject>
 		<ExcludeFromCodeCoverage>true</ExcludeFromCodeCoverage>
+		<!-- Abilita il runner MTP nativo di xUnit v3 -->
+		<EnableXunitRunner>true</EnableXunitRunner>
+		<OutputType>Exe</OutputType>
 	</PropertyGroup>
 	<ItemGroup>
 		<AssemblyAttribute Include="System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute" />

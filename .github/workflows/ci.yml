@@ -39,11 +39,15 @@ jobs:
         --coverage-output-format cobertura
         --coverage-output ./coverage/coverage.cobertura.xml
 
-    # Genera la sintesi e genera il badge di copertura
+    # Mostra i file generati (utilissimo per il debug nei log di GitHub)
+    - name: List Coverage Files
+      run: ls -R ./coverage
+
+    # Legge il file Cobertura generato usando un pattern di ricerca più flessibile
     - name: Code Coverage Summary & Threshold Check
       uses: irongut/CodeCoverageSummary@v1.3.0
       with:
-        filename: coverage/**/coverage.cobertura.xml
+        filename: 'coverage/**/*.cobertura.xml'
         badge: true
         fail_below_min: true
         thresholds: '80 60'

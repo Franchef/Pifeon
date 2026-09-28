@@ -5,6 +5,7 @@ namespace Pifeon.Core.Signaling.Messages;
 
 [ExcludeFromCodeCoverage]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(HealthyStatus))]
 [JsonSerializable(typeof(CreateSessionRequest))]
 [JsonSerializable(typeof(JoinSessionRequest))]
 [JsonSerializable(typeof(CodeCreatedResponse))]

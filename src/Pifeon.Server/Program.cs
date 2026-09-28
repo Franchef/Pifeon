@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Pifeon.Core.Abstractions;
 using Pifeon.Core.Services;
+using Pifeon.Core.Signaling.Messages;
 using Pifeon.Server;
 
 WebApplicationBuilder builder = WebApplication.CreateSlimBuilder(args);
@@ -14,7 +15,7 @@ builder.AddServiceDefaults();
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
-    options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Insert(0, Pifeon.Core.Signaling.Messages.SignalingJsonContext.Default);
 });
 
 // Registra la gestione sessioni in-memory
@@ -42,25 +43,6 @@ app.UseWebSockets(new WebSocketOptions
     KeepAliveInterval = TimeSpan.FromSeconds(15)
 });
 
-Todo[] sampleTodos =
-[
-    new(1, "Walk the dog"),
-    new(2, "Do the dishes", DateOnly.FromDateTime(DateTime.Now)),
-    new(3, "Do the laundry", DateOnly.FromDateTime(DateTime.Now.AddDays(1))),
-    new(4, "Clean the bathroom"),
-    new(5, "Clean the car", DateOnly.FromDateTime(DateTime.Now.AddDays(2)))
-];
-
-RouteGroupBuilder todosApi = app.MapGroup("/todos");
-todosApi.MapGet("/", () => sampleTodos)
-        .WithName("GetTodos");
-
-todosApi.MapGet("/{id}", Results<Ok<Todo>, NotFound> (int id) =>
-    sampleTodos.FirstOrDefault(a => a.Id == id) is { } todo
-        ? TypedResults.Ok(todo)
-        : TypedResults.NotFound())
-    .WithName("GetTodoById");
-
 // Endpoint di Pairing unico via WebSockets
 // Endpoint WebSocket per il signaling / pairing
 app.Map("/ws/pairing", async (HttpContext context, CancellationToken cancellationToken) => 
@@ -71,6 +53,8 @@ app.Map("/ws/pairing", async (HttpContext context, CancellationToken cancellatio
 });
 
 // Health check endpoint per Aspire / Docker
-app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }));
+app
+    .MapGet("/health", () => Results.Ok(new HealthyStatus("Healthy")))
+    .Produces<HealthyStatus>();
 
 await app.RunAsync();

@@ -97,11 +97,11 @@ public sealed class PifeonSenderTests : IDisposable
         await Task.Yield(); // Ensure the method is truly asynchronous
         // Arrange: Non invochiamo InitializeSessionAsync, quindi Code è stringa vuota
         string sampleFilePath = Path.Combine(_testDirectory, "test.txt");
-        await File.WriteAllTextAsync(sampleFilePath, "Dummy content");
+        await File.WriteAllTextAsync(sampleFilePath, "Dummy content", TestContext.Current.CancellationToken);
 
         // Act & Assert
         InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _sut.SendAsync(sampleFilePath));
+            _sut.SendAsync(sampleFilePath, TestContext.Current.CancellationToken));
 
         Assert.Contains("Invocare prima InitializeSessionAsync()", ex.Message);
     }
@@ -124,7 +124,7 @@ public sealed class PifeonSenderTests : IDisposable
 
         // Prepariamo un file reale per la scansione tramite FolderScanner
         string sampleFilePath = Path.Combine(_testDirectory, "data.bin");
-        await File.WriteAllBytesAsync(sampleFilePath, new byte[] { 0x01, 0x02, 0x03, 0x04 });
+        await File.WriteAllBytesAsync(sampleFilePath, [0x01, 0x02, 0x03, 0x04], TestContext.Current.CancellationToken);
 
         // Act
         await _sut.InitializeSessionAsync(cts.Token);

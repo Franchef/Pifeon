@@ -55,7 +55,7 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
             .Returns(ValueTask.CompletedTask);
 
         // Act
-        string code = await _sut.CreateSessionAsync();
+        string code = await _sut.CreateSessionAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal("123456", code);
@@ -79,7 +79,7 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
             .Returns(ValueTask.CompletedTask);
 
         // Act
-        await _sut.JoinSessionAsync(sessionCode);
+        await _sut.JoinSessionAsync(sessionCode, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Contains($"\"code\":\"{sessionCode}\"", capturedPayload);
@@ -102,7 +102,7 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
             .Returns(ValueTask.CompletedTask);
 
         // Act
-        await _sut.SendSignalDataAsync(payloadData);
+        await _sut.SendSignalDataAsync(payloadData, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Contains($"\"data\":\"{payloadData}\"", capturedPayload);
@@ -153,10 +153,10 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
             });
 
         // Act
-        await _sut.ConnectAsync();
+        await _sut.ConnectAsync(TestContext.Current.CancellationToken);
 
         // Attende che il flag RECEIVER_JOINED sia consumato da WaitForReceiverAsync
-        await _sut.WaitForReceiverAsync();
+        await _sut.WaitForReceiverAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.True(eventRaised);
@@ -192,10 +192,10 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
             });
 
         // Act
-        await _sut.ConnectAsync();
+        await _sut.ConnectAsync(TestContext.Current.CancellationToken);
 
         // Diamo un breve delta per consentire all'event loop in background di processare il buffer
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal("ICE_CANDIDATE_1", receivedPayload);
@@ -235,8 +235,9 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
             });
 
         // Act & Assert (L'esecuzione non deve lanciare eccezioni)
-        await _sut.ConnectAsync();
-        await Task.Delay(100);
+        await _sut.ConnectAsync(TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+        Assert.True(true); // Se arriviamo qui senza eccezioni, il test è passato
     }
 
     [Fact]
@@ -249,8 +250,9 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
             .ThrowsAsync(new InvalidOperationException("Network reset"));
 
         // Act & Assert (Il loop gestisce l'eccezione nel blocco catch senza far fallire l'applicazione)
-        await _sut.ConnectAsync();
-        await Task.Delay(100);
+        await _sut.ConnectAsync(TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+        Assert.True(true);
     }
 
     #endregion
@@ -264,8 +266,8 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
         _channelMock.Setup(c => c.IsConnected).Returns(false);
 
         // Act
-        await _sut.ConnectAsync();
-        await _sut.ConnectAsync(); // Seconda chiamata idonea per la verifica del blocco `_listenTask == null`
+        await _sut.ConnectAsync(TestContext.Current.CancellationToken);
+        await _sut.ConnectAsync(TestContext.Current.CancellationToken); // Seconda chiamata idonea per la verifica del blocco `_listenTask == null`
 
         // Assert
         _channelMock.Verify(c => c.ReceiveAsync(It.IsAny<Memory<byte>>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -278,10 +280,10 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
         _channelMock.Setup(c => c.IsConnected).Returns(true);
         _channelMock.Setup(c => c.CloseAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-        await _sut.ConnectAsync();
+        await _sut.ConnectAsync(TestContext.Current.CancellationToken);
 
         // Act
-        await _sut.DisconnectAsync();
+        await _sut.DisconnectAsync(TestContext.Current.CancellationToken);
 
         // Assert
         _channelMock.Verify(c => c.CloseAsync(It.IsAny<CancellationToken>()), Times.Once);
@@ -294,11 +296,11 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
         await _sut.DisposeAsync();
 
         // Act & Assert
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.ConnectAsync());
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.CreateSessionAsync());
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.JoinSessionAsync("123456"));
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.WaitForReceiverAsync());
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.SendSignalDataAsync("data"));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.ConnectAsync(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.CreateSessionAsync(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.JoinSessionAsync("123456", TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.WaitForReceiverAsync(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.SendSignalDataAsync("data", TestContext.Current.CancellationToken));
     }
 
     [Fact]

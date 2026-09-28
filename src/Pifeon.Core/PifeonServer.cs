@@ -15,7 +15,7 @@ public sealed class PifeonServer : IPifeonServer
     private readonly bool _ownsHttpClient;
     private bool _disposed;
 
-    public string ServerUrl { get; set; }
+    public string ServerUrl { get; private set; }
 
     public PifeonServer(string? customUrl = null, string? appSettingsUrl = null, HttpClient? httpClient = null)
     {
@@ -78,26 +78,6 @@ public sealed class PifeonServer : IPifeonServer
             return false;
         }
     }
-    //public async Task<bool> IsHealthyAsync(CancellationToken ct = default)
-    //{
-    //    ObjectDisposedException.ThrowIf(_disposed, this);
-
-    //    try
-    //    {
-    //        var httpBuilder = new UriBuilder(ServerUrl)
-    //        {
-    //            Scheme = ServerUrl.StartsWith("wss", StringComparison.OrdinalIgnoreCase) ? "https" : "http",
-    //            Path = "/health"
-    //        };
-
-    //        using HttpResponseMessage response = await _httpClient.GetAsync(httpBuilder.Uri, ct);
-    //        return response.IsSuccessStatusCode;
-    //    }
-    //    catch
-    //    {
-    //        return false;
-    //    }
-    //}
 
     public async ValueTask DisposeAsync()
     {
@@ -108,6 +88,7 @@ public sealed class PifeonServer : IPifeonServer
             {
                 _httpClient.Dispose();
             }
+            ServerUrl = string.Empty;
         }
         await Task.CompletedTask;
     }

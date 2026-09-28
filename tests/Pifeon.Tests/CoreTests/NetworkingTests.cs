@@ -40,7 +40,8 @@ public class NetworkingTests
         // Act
         IPEndPoint? endPoint = await StunClient.GetPublicIPEndPointAsync(
             stunServerHost: invalidStunHost,
-            stunPort: 19302);
+            stunPort: 19302,
+            ct: TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Null(endPoint);

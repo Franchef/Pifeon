@@ -16,7 +16,7 @@ public class PairingManagerTests
         // Arrange
         PairingManager<bool> sut = new();
         // Act
-        string output = await sut.CreateSessionAsync(true);
+        string output = await sut.CreateSessionAsync(true, TestContext.Current.CancellationToken);
         // Assert
         Assert.False(string.IsNullOrEmpty(output), "CreateSession should return a non-empty code.");
     }
@@ -28,7 +28,7 @@ public class PairingManagerTests
         PairingManager<bool> sut = new();
 
         // Act
-        string code = await sut.CreateSessionAsync(true);
+        string code = await sut.CreateSessionAsync(true, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.True(int.TryParse(code, out int numericCode), "Il codice deve essere numerico.");
@@ -46,7 +46,7 @@ public class PairingManagerTests
         // Act
         for (int i = 0; i < iterations; i++)
         {
-            string code = await sut.CreateSessionAsync(true);
+            string code = await sut.CreateSessionAsync(true, TestContext.Current.CancellationToken);
             codes.Add(code);
         }
 
@@ -59,7 +59,7 @@ public class PairingManagerTests
     {
         // Arrange
         PairingManager<bool> sut = new();
-        string code = await sut.CreateSessionAsync(true);
+        string code = await sut.CreateSessionAsync(true, TestContext.Current.CancellationToken);
 
         // Act
         bool success = sut.TryGetSession(code, out PairingSession<bool>? session);
@@ -89,7 +89,7 @@ public class PairingManagerTests
     {
         // Arrange
         PairingManager<bool> sut = new();
-        string code = await sut.CreateSessionAsync(true);
+        string code = await sut.CreateSessionAsync(true, TestContext.Current.CancellationToken);
 
         // Act
         sut.RemoveSession(code);
@@ -107,7 +107,7 @@ public class PairingManagerTests
         string senderConnection = "Sender_Socket_ID";
         string receiverConnection = "Receiver_Socket_ID";
 
-        string code = await sut.CreateSessionAsync(senderConnection);
+        string code = await sut.CreateSessionAsync(senderConnection, TestContext.Current.CancellationToken);
         sut.TryGetSession(code, out PairingSession<string>? session);
 
         // Act: Il Receiver si connette e imposta il suo risultato
@@ -123,7 +123,7 @@ public class PairingManagerTests
     {
         // Arrange
         PairingManager<bool> sut = new();
-        string code = await sut.CreateSessionAsync(true);
+        string code = await sut.CreateSessionAsync(true, TestContext.Current.CancellationToken);
 
         sut.TryGetSession(code, out PairingSession<bool>? session);
 

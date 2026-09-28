@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Pifeon.Core.Networking; // Adatta con il namespace corretto del tuo progetto
 using Xunit;
 
-namespace Pifeon.Tests.Unit.Networking;
+namespace Pifeon.Tests.CoreTests;
 
 public class P2PConnectionManagerTests
 {
@@ -30,7 +30,7 @@ public class P2PConnectionManagerTests
         byte[] payload = "Hello P2P"u8.ToArray();
 
         // Act & Assert
-        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.SendBytesAsync(payload));
+        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.SendBytesAsync(payload, TestContext.Current.CancellationToken));
         Assert.Contains("Socket P2P non connesso", ex.Message);
     }
 
@@ -41,7 +41,7 @@ public class P2PConnectionManagerTests
         await using var manager = new P2PConnectionManager();
 
         // Act & Assert
-        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ReceiveBytesAsync());
+        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ReceiveBytesAsync(TestContext.Current.CancellationToken));
         Assert.Contains("Socket P2P non connesso", ex.Message);
     }
 
@@ -99,10 +99,10 @@ public class P2PConnectionManagerTests
         Task<bool> listenTask = Task.Run(() => senderManager.ListenForPeerAsync(port));
 
         // Diamo tempo al socket in ascolto di avviarsi
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
         // Act 2: Il ricevitore si connette
-        bool connected = await receiverManager.ConnectToPeerAsync(endPoint);
+        bool connected = await receiverManager.ConnectToPeerAsync(endPoint, TestContext.Current.CancellationToken);
         bool listenResult = await listenTask;
 
         // Assert connessione stabilita
@@ -112,8 +112,8 @@ public class P2PConnectionManagerTests
         Assert.True(receiverManager.IsConnected);
 
         // Act 3: Invio dal mittente al ricevitore
-        Task sendTask = senderManager.SendBytesAsync(payloadToSend);
-        byte[] receivedPayload = await receiverManager.ReceiveBytesAsync();
+        Task sendTask = senderManager.SendBytesAsync(payloadToSend, TestContext.Current.CancellationToken);
+        byte[] receivedPayload = await receiverManager.ReceiveBytesAsync(TestContext.Current.CancellationToken);
         await sendTask;
 
         // Assert integrità dati
@@ -131,16 +131,16 @@ public class P2PConnectionManagerTests
         var clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
         Task<bool> listenTask = Task.Run(() => listenerManager.ListenForPeerAsync(port));
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
-        await clientSocket.ConnectAsync(endPoint);
+        await clientSocket.ConnectAsync(endPoint, TestContext.Current.CancellationToken);
         await listenTask;
 
         // Chiudiamo bruscamente il socket client per simulare il reset della connessione
         clientSocket.Close();
 
         // Act & Assert: ReadExactAsync rileva 0 byte letti e lancia SocketException
-        await Assert.ThrowsAsync<SocketException>(() => listenerManager.ReceiveBytesAsync());
+        await Assert.ThrowsAsync<SocketException>(() => listenerManager.ReceiveBytesAsync(TestContext.Current.CancellationToken));
     }
 
     #endregion
@@ -158,9 +158,9 @@ public class P2PConnectionManagerTests
         await using var receiverManager = new P2PConnectionManager();
 
         Task<bool> listenTask = Task.Run(() => senderManager.ListenForPeerAsync(port));
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
-        await receiverManager.ConnectToPeerAsync(endPoint);
+        await receiverManager.ConnectToPeerAsync(endPoint, TestContext.Current.CancellationToken);
         await listenTask;
 
         Assert.True(senderManager.IsConnected);
@@ -184,13 +184,13 @@ public class P2PConnectionManagerTests
         await using var receiverManager = new P2PConnectionManager();
 
         Task<bool> listenTask = Task.Run(() => senderManager.ListenForPeerAsync(port));
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
-        await receiverManager.ConnectToPeerAsync(endPoint);
+        await receiverManager.ConnectToPeerAsync(endPoint, TestContext.Current.CancellationToken);
         await listenTask;
 
         // Act: Dispose sincrono
-        senderManager.Dispose();
+        await senderManager.DisposeAsync();
 
         // Assert
         Assert.False(senderManager.IsConnected);

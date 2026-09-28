@@ -1,4 +1,5 @@
-﻿using Pifeon.Core.IO;
+﻿using System.Reflection.PortableExecutable;
+using Pifeon.Core.IO;
 
 namespace Pifeon.Tests.CoreTests;
 
@@ -18,10 +19,10 @@ public sealed class FileIoTests : IDisposable
     {
         // Arrange: Scrive dati noti sul file temporaneo
         byte[] content = "Pifeon File Transfer Content"u8.ToArray();
-        await File.WriteAllBytesAsync(_tempSourceFile, content);
+        await File.WriteAllBytesAsync(_tempSourceFile, content, TestContext.Current.CancellationToken);
 
         // Act
-        string hash = await FileHasher.ComputeHashAsync(_tempSourceFile);
+        string hash = await FileHasher.ComputeHashAsync(_tempSourceFile, TestContext.Current.CancellationToken);
 
         // Assert: Verifica l'hash esadecimale a 64 caratteri
         Assert.Equal(64, hash.Length);
@@ -34,28 +35,30 @@ public sealed class FileIoTests : IDisposable
         // Arrange: Genera un file di test da ~2.5 MB (superiore alla dimensione standard dei chunk)
         byte[] sourceData = new byte[1024 * 1024 * 2 + 512];
         Random.Shared.NextBytes(sourceData);
-        await File.WriteAllBytesAsync(_tempSourceFile, sourceData);
+        await File.WriteAllBytesAsync(_tempSourceFile, sourceData, TestContext.Current.CancellationToken);
 
         // Act: Legge a chunk e riscrive sul file di destinazione
         using (var reader = new FileChunkReader(_tempSourceFile))
         using (var writer = new FileChunkWriter(_tempDestinationFile))
         {
+            Assert.Equal(sourceData.Length, reader.TotalBytes);
             byte[] buffer = new byte[1024 * 512]; // Chunk da 512 KB
             int bytesRead;
 
-            while ((bytesRead = await reader.ReadNextChunkAsync(buffer)) > 0)
+            while ((bytesRead = await reader.ReadNextChunkAsync(buffer, TestContext.Current.CancellationToken)) > 0)
             {
-                await writer.WriteChunkAsync(buffer.AsMemory(0, bytesRead));
+                await writer.WriteChunkAsync(buffer.AsMemory(0, bytesRead), TestContext.Current.CancellationToken);
             }
 
-            await writer.FlushAsync();
+            await writer.FlushAsync(TestContext.Current.CancellationToken);
         }
 
         // Assert: Confronta l'hash del file sorgente e quello ricostruito
-        string sourceHash = await FileHasher.ComputeHashAsync(_tempSourceFile);
-        string destHash = await FileHasher.ComputeHashAsync(_tempDestinationFile);
+        string sourceHash = await FileHasher.ComputeHashAsync(_tempSourceFile, TestContext.Current.CancellationToken);
+        string destHash = await FileHasher.ComputeHashAsync(_tempDestinationFile, TestContext.Current.CancellationToken);
 
         Assert.Equal(sourceHash, destHash);
+        
     }
 
     [Fact]
@@ -70,7 +73,7 @@ public sealed class FileIoTests : IDisposable
         // Act & Assert: Verifica che venga sollevata un'eccezione quando si tenta di calcolare l'hash di un file inesistente
         await Assert.ThrowsAsync<FileNotFoundException>(async () =>
         {
-            await FileHasher.ComputeHashAsync(_tempSourceFile);
+            await FileHasher.ComputeHashAsync(_tempSourceFile, TestContext.Current.CancellationToken);
         });
     }
     public void Dispose()

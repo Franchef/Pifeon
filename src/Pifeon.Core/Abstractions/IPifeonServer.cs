@@ -5,7 +5,7 @@ public interface IPifeonServer : IAsyncDisposable, IDisposable
     /// <summary>
     /// L'URL corrente del server di segnalazione risolto o impostato manualmente.
     /// </summary>
-    string ServerUrl { get; set; }
+    string ServerUrl { get; }
 
     /// <summary>
     /// Verifica se il server di segnalazione è raggiungibile ed è operativo.

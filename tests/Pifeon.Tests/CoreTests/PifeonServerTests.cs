@@ -8,7 +8,7 @@ using Pifeon.Core;
 
 namespace Pifeon.Tests.CoreTests;
 
-public class PifeonServerTests : IDisposable
+public sealed class PifeonServerTests : IDisposable
 {
     private readonly Mock<HttpMessageHandler> _httpMessageHandlerMock;
     private readonly HttpClient _httpClient;
@@ -82,7 +82,7 @@ public class PifeonServerTests : IDisposable
             });
 
         // Act
-        bool result = await server.IsHealthyAsync();
+        bool result = await server.IsHealthyAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.True(result);
@@ -106,7 +106,7 @@ public class PifeonServerTests : IDisposable
             });
 
         // Act
-        bool result = await _sut.IsHealthyAsync();
+        bool result = await _sut.IsHealthyAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.False(result);
@@ -125,7 +125,7 @@ public class PifeonServerTests : IDisposable
             .ThrowsAsync(new HttpRequestException("Network failure"));
 
         // Act
-        bool result = await _sut.IsHealthyAsync();
+        bool result = await _sut.IsHealthyAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.False(result);
@@ -139,14 +139,14 @@ public class PifeonServerTests : IDisposable
     public async Task CreateSessionAsync_ShouldThrowException_WhenServerUnreachable()
     {
         // Act & Assert (In assenza di un endpoint WebSocket attivo, deve fallire la connessione)
-        await Assert.ThrowsAnyAsync<Exception>(() => _sut.CreateSessionAsync());
+        await Assert.ThrowsAnyAsync<Exception>(() => _sut.CreateSessionAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task JoinSessionAsync_ShouldThrowException_WhenServerUnreachable()
     {
         // Act & Assert
-        await Assert.ThrowsAnyAsync<Exception>(() => _sut.JoinSessionAsync("123456"));
+        await Assert.ThrowsAnyAsync<Exception>(() => _sut.JoinSessionAsync("123456", TestContext.Current.CancellationToken));
     }
 
     #endregion
@@ -161,9 +161,9 @@ public class PifeonServerTests : IDisposable
         await server.DisposeAsync();
 
         // Act & Assert
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => server.CreateSessionAsync());
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => server.JoinSessionAsync("123456"));
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => server.IsHealthyAsync());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => server.CreateSessionAsync(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => server.JoinSessionAsync("123456", TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => server.IsHealthyAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -186,7 +186,7 @@ public class PifeonServerTests : IDisposable
         await server.DisposeAsync();
 
         // Assert: L'HttpClient esterno deve rimanere attivo ed operativo
-        HttpResponseMessage response = await externalClient.GetAsync("http://localhost");
+        HttpResponseMessage response = await externalClient.GetAsync("http://localhost", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         externalClient.Dispose();
@@ -201,6 +201,8 @@ public class PifeonServerTests : IDisposable
         // Act & Assert (La doppia chiamata a DisposeAsync non deve lanciare eccezioni)
         await server.DisposeAsync();
         await server.DisposeAsync();
+
+        Assert.Empty(server.ServerUrl);
     }
 
     #endregion

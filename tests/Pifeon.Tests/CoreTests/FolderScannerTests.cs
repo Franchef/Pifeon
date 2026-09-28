@@ -35,16 +35,15 @@ public sealed class FolderScannerTests : IDisposable
         // Arrange
         string filePath = Path.Combine(_testDirectory, "sample.txt");
         byte[] fileContent = "Hello Pifeon P2P"u8.ToArray();
-        await File.WriteAllBytesAsync(filePath, fileContent);
+        await File.WriteAllBytesAsync(filePath, fileContent, TestContext.Current.CancellationToken);
 
         string expectedHash = ComputeExpectedSha256(fileContent);
 
         // Act
-        List<TransferItem> result = await FolderScanner.ScanPath(filePath).ToListAsync(default);
+        List<TransferItem> result = await FolderScanner.ScanPath(filePath).ToListAsync(TestContext.Current.CancellationToken);
 
         // Assert
-        Assert.Single(result);
-        TransferItem item = result[0];
+        TransferItem item = Assert.Single(result);
         Assert.Equal("sample.txt", item.RelativePath);
         Assert.Equal(fileContent.Length, item.FileSize);
         Assert.Equal(filePath, item.FullPath);
@@ -61,19 +60,19 @@ public sealed class FolderScannerTests : IDisposable
         // Arrange: Crea struttura cartelle -> _testDirectory/file1.txt e _testDirectory/sub/file2.txt
         string file1Path = Path.Combine(_testDirectory, "file1.txt");
         byte[] file1Content = "Contenuto File 1"u8.ToArray();
-        await File.WriteAllBytesAsync(file1Path, file1Content);
+        await File.WriteAllBytesAsync(file1Path, file1Content, TestContext.Current.CancellationToken);
 
         string subDir = Path.Combine(_testDirectory, "sub");
         Directory.CreateDirectory(subDir);
         string file2Path = Path.Combine(subDir, "file2.txt");
         byte[] file2Content = "Contenuto File 2 di prova"u8.ToArray();
-        await File.WriteAllBytesAsync(file2Path, file2Content);
+        await File.WriteAllBytesAsync(file2Path, file2Content, TestContext.Current.CancellationToken);
 
         string expectedHash1 = ComputeExpectedSha256(file1Content);
         string expectedHash2 = ComputeExpectedSha256(file2Content);
 
         // Act
-        List<TransferItem> result = await FolderScanner.ScanPath(_testDirectory).ToListAsync(default);
+        List<TransferItem> result = await FolderScanner.ScanPath(_testDirectory).ToListAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal(2, result.Count);
@@ -97,7 +96,7 @@ public sealed class FolderScannerTests : IDisposable
         // Arrange: _testDirectory è già creata ed è vuota
 
         // Act
-        List<TransferItem> result = await FolderScanner.ScanPath(_testDirectory).ToListAsync(default);
+        List<TransferItem> result = await FolderScanner.ScanPath(_testDirectory).ToListAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Empty(result);
@@ -115,7 +114,7 @@ public sealed class FolderScannerTests : IDisposable
 
         // Act & Assert (Richiede l'enumerazione con .ToListAsync() per scatenare l'eccezione dello yield return)
         FileNotFoundException exception = await Assert.ThrowsAsync<FileNotFoundException>(async () =>
-            await FolderScanner.ScanPath(nonExistingPath).ToListAsync(default));
+            await FolderScanner.ScanPath(nonExistingPath).ToListAsync(TestContext.Current.CancellationToken));
 
         Assert.Contains("Il percorso specificato non esiste", exception.Message);
         Assert.Contains(nonExistingPath, exception.Message);

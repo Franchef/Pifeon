@@ -17,7 +17,7 @@ public class PairingManagerTests
         var sut = new PairingManager<string>();
 
         // Act
-        string code = await sut.CreateSessionAsync("Sender_Connection_1");
+        string code = await sut.CreateSessionAsync("Sender_Connection_1", TestContext.Current.CancellationToken);
 
         // Assert
         Assert.NotNull(code);
@@ -37,7 +37,7 @@ public class PairingManagerTests
         // Act
         for (int i = 0; i < iterations; i++)
         {
-            string code = await sut.CreateSessionAsync($"Sender_Connection_{i}");
+            string code = await sut.CreateSessionAsync($"Sender_Connection_{i}", TestContext.Current.CancellationToken);
             bool added = generatedCodes.Add(code);
 
             Assert.True(added, $"Rilevata collisione del codice al tentativo {i}: {code}");
@@ -57,7 +57,7 @@ public class PairingManagerTests
         // Arrange
         var sut = new PairingManager<string>();
         string senderId = "Sender_Conn_ABC";
-        string code = await sut.CreateSessionAsync(senderId);
+        string code = await sut.CreateSessionAsync(senderId, TestContext.Current.CancellationToken);
 
         // Act
         bool exists = sut.TryGetSession(code, out PairingSession<string>? session);
@@ -88,7 +88,7 @@ public class PairingManagerTests
     {
         // Arrange
         var sut = new PairingManager<string>();
-        string code = await sut.CreateSessionAsync("Sender_Conn_1");
+        string code = await sut.CreateSessionAsync("Sender_Conn_1", TestContext.Current.CancellationToken);
 
         // Act
         sut.RemoveSession(code);
@@ -121,10 +121,10 @@ public class PairingManagerTests
         string senderConnection = "Sender_Conn_1";
         string receiverConnection = "Receiver_Conn_2";
 
-        string code = await sut.CreateSessionAsync(senderConnection);
+        string code = await sut.CreateSessionAsync(senderConnection, TestContext.Current.CancellationToken);
 
         // Act
-        bool joinSuccess = await sut.TryJoinSessionAsync(code, receiverConnection);
+        bool joinSuccess = await sut.TryJoinSessionAsync(code, receiverConnection, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.True(joinSuccess);
@@ -143,7 +143,7 @@ public class PairingManagerTests
         var sut = new PairingManager<string>();
 
         // Act
-        bool joinSuccess = await sut.TryJoinSessionAsync("999999", "Receiver_Conn_2");
+        bool joinSuccess = await sut.TryJoinSessionAsync("999999", "Receiver_Conn_2", TestContext.Current.CancellationToken);
 
         // Assert
         Assert.False(joinSuccess);
@@ -154,13 +154,13 @@ public class PairingManagerTests
     {
         // Arrange
         var sut = new PairingManager<string>();
-        string code = await sut.CreateSessionAsync("Sender_Conn_1");
+        string code = await sut.CreateSessionAsync("Sender_Conn_1", TestContext.Current.CancellationToken);
 
         // Act: Il primo receiver si connette con successo
-        bool firstJoin = await sut.TryJoinSessionAsync(code, "Receiver_Conn_1");
+        bool firstJoin = await sut.TryJoinSessionAsync(code, "Receiver_Conn_1", TestContext.Current.CancellationToken);
 
         // Act: Un secondo receiver tenta la join sulla stessa sessione
-        bool secondJoin = await sut.TryJoinSessionAsync(code, "Receiver_Conn_2");
+        bool secondJoin = await sut.TryJoinSessionAsync(code, "Receiver_Conn_2", TestContext.Current.CancellationToken);
 
         // Assert
         Assert.True(firstJoin);
@@ -178,13 +178,13 @@ public class PairingManagerTests
         TimeSpan shortTimeout = TimeSpan.FromMilliseconds(100);
         var sut = new PairingManager<string>(shortTimeout);
 
-        string code = await sut.CreateSessionAsync("Sender_Conn_1");
+        string code = await sut.CreateSessionAsync("Sender_Conn_1", TestContext.Current.CancellationToken);
 
         // Verifichiamo che la sessione sia inizialmente presente
         Assert.True(sut.TryGetSession(code, out _));
 
         // Act: Attendiamo la scadenza del timer di timeout
-        await Task.Delay(250);
+        await Task.Delay(250, TestContext.Current.CancellationToken);
 
         // Assert
         bool existsAfterTimeout = sut.TryGetSession(code, out _);
@@ -196,7 +196,7 @@ public class PairingManagerTests
     {
         // Arrange
         var sut = new PairingManager<string>();
-        string code = await sut.CreateSessionAsync("Sender_Conn_1");
+        string code = await sut.CreateSessionAsync("Sender_Conn_1", TestContext.Current.CancellationToken);
 
         sut.TryGetSession(code, out PairingSession<string>? session);
         Assert.NotNull(session);

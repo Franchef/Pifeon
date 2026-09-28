@@ -13,7 +13,7 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
     private string _serverUrl = string.Empty;
     private readonly CancellationTokenSource _cts = new();
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         // Trova una porta disponibile per l'HttpListener locale
         int port = GetAvailablePort();
@@ -24,7 +24,7 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
         _httpListener.Start();
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         await _cts.CancelAsync();
         _httpListener?.Stop();
@@ -201,6 +201,8 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
         // Act & Assert (chiamate multiple non devono sollevare eccezioni)
         await channel.DisposeAsync();
         await channel.DisposeAsync();
+
+        Assert.Null(webSocket.CloseStatus); // Il socket dovrebbe essere chiuso correttamente
     }
 
     #endregion

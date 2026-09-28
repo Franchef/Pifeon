@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using Pifeon.Core.Services;
+using Pifeon.Core.Signaling.Models;
 using Pifeon.Server;
 
 namespace Pifeon.Tests.ServerTests;
@@ -9,24 +11,24 @@ public class PairingManagerTests
 {
 
     [Fact]
-    public void TestPairingManagerCreateSession()
+    public async Task TestPairingManagerCreateSessionAsync()
     {
         // Arrange
         PairingManager<bool> sut = new();
         // Act
-        string output = sut.CreateSession(true);
+        string output = await sut.CreateSessionAsync(true);
         // Assert
         Assert.False(string.IsNullOrEmpty(output), "CreateSession should return a non-empty code.");
     }
 
     [Fact]
-    public void CreateSession_ShouldReturnSixDigitCode()
+    public async Task CreateSession_ShouldReturnSixDigitCodeAsync()
     {
         // Arrange
         PairingManager<bool> sut = new();
 
         // Act
-        string code = sut.CreateSession(true);
+        string code = await sut.CreateSessionAsync(true);
 
         // Assert
         Assert.True(int.TryParse(code, out int numericCode), "Il codice deve essere numerico.");
@@ -34,7 +36,7 @@ public class PairingManagerTests
     }
 
     [Fact]
-    public void CreateSession_MultipleCalls_ShouldGenerateUniqueCodes()
+    public async Task CreateSession_MultipleCalls_ShouldGenerateUniqueCodesAsync()
     {
         // Arrange
         PairingManager<bool> sut = new();
@@ -44,7 +46,7 @@ public class PairingManagerTests
         // Act
         for (int i = 0; i < iterations; i++)
         {
-            string code = sut.CreateSession(true);
+            string code = await sut.CreateSessionAsync(true);
             codes.Add(code);
         }
 
@@ -53,11 +55,11 @@ public class PairingManagerTests
     }
 
     [Fact]
-    public void TryGetSession_WithValidCode_ShouldReturnSession()
+    public async Task TryGetSession_WithValidCode_ShouldReturnSessionAsync()
     {
         // Arrange
         PairingManager<bool> sut = new();
-        string code = sut.CreateSession(true);
+        string code = await sut.CreateSessionAsync(true);
 
         // Act
         bool success = sut.TryGetSession(code, out PairingSession<bool>? session);
@@ -83,11 +85,11 @@ public class PairingManagerTests
     }
 
     [Fact]
-    public void RemoveSession_ShouldDeleteSessionFromMemory()
+    public async Task RemoveSession_ShouldDeleteSessionFromMemoryAsync()
     {
         // Arrange
         PairingManager<bool> sut = new();
-        string code = sut.CreateSession(true);
+        string code = await sut.CreateSessionAsync(true);
 
         // Act
         sut.RemoveSession(code);
@@ -105,7 +107,7 @@ public class PairingManagerTests
         string senderConnection = "Sender_Socket_ID";
         string receiverConnection = "Receiver_Socket_ID";
 
-        string code = sut.CreateSession(senderConnection);
+        string code = await sut.CreateSessionAsync(senderConnection);
         sut.TryGetSession(code, out PairingSession<string>? session);
 
         // Act: Il Receiver si connette e imposta il suo risultato
@@ -117,16 +119,16 @@ public class PairingManagerTests
     }
 
     [Fact]
-    public void Session_OnCancellation_ShouldRemoveSelfFromManager()
+    public async Task Session_OnCancellation_ShouldRemoveSelfFromManagerAsync()
     {
         // Arrange
         PairingManager<bool> sut = new();
-        string code = sut.CreateSession(true);
+        string code = await sut.CreateSessionAsync(true);
 
         sut.TryGetSession(code, out PairingSession<bool>? session);
 
         // Act: Simula la scadenza del CancellationToken (timeout 5 min)
-        session!.TimeoutCts.Cancel();
+        await session!.TimeoutCts.CancelAsync();
 
         // Assert
         bool exists = sut.TryGetSession(code, out _);

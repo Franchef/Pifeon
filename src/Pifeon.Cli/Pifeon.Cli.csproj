@@ -11,7 +11,10 @@
 		<EnableAotAnalyzer>true</EnableAotAnalyzer>
 		<InvariantGlobalization>true</InvariantGlobalization>
 	</PropertyGroup>
-
+	<!-- Esclude automaticamente i file di integrazione generati da OpenAPI e Minimal API -->
+	<ItemGroup>
+		<AssemblyAttribute Include="System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute" />
+	</ItemGroup>
 	<ItemGroup>
 		<PackageReference Include="Spectre.Console" />
 		<PackageReference Include="Spectre.Console.Cli" />

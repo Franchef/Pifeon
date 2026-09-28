@@ -1,5 +1,7 @@
 using System.Net.WebSockets;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Pifeon.Core.Abstractions;
+using Pifeon.Core.Services;
 using Pifeon.Server;
 
 WebApplicationBuilder builder = WebApplication.CreateSlimBuilder(args);
@@ -16,7 +18,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 // Registra la gestione sessioni in-memory
-builder.Services.AddSingleton<PairingManager<WebSocket>>();
+builder.Services.AddSingleton<IPairingManager<WebSocket>, PairingManager<WebSocket> >();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
@@ -61,11 +63,11 @@ todosApi.MapGet("/{id}", Results<Ok<Todo>, NotFound> (int id) =>
 
 // Endpoint di Pairing unico via WebSockets
 // Endpoint WebSocket per il signaling / pairing
-app.Map("/ws/pairing", async context =>
+app.Map("/ws/pairing", async (HttpContext context, CancellationToken cancellationToken) => 
 {
     // Risoluzione esplicita del servizio dalla Dependency Injection
-    PairingManager<WebSocket> manager = context.RequestServices.GetRequiredService<PairingManager<WebSocket>>();
-    await WebSocketHandler.HandlePairingAsync(context, manager);
+    IPairingManager<WebSocket> manager = context.RequestServices.GetRequiredService<IPairingManager<WebSocket>>();
+    await WebSocketHandler.HandlePairingAsync(context, manager, cancellationToken);
 });
 
 // Health check endpoint per Aspire / Docker

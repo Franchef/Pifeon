@@ -1,13 +1,15 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Pifeon.Core.Abstractions;
 using Pifeon.Core.Signaling.Messages;
+using Pifeon.Core.Signaling.Models;
 
 namespace Pifeon.Server;
 
 public static class WebSocketHandler
 {
-    public static async Task HandlePairingAsync(HttpContext context, PairingManager<WebSocket> manager)
+    public static async Task HandlePairingAsync(HttpContext context, IPairingManager<WebSocket> manager, CancellationToken cancellationToken)
     {
         if (!context.WebSockets.IsWebSocketRequest)
         {
@@ -35,7 +37,7 @@ public static class WebSocketHandler
         {
             // === SENDER ===
             // Il manager garantisce l'univocità del codice a 6 cifre
-            string code = manager.CreateSession(webSocket);
+            string code = await manager.CreateSessionAsync(webSocket, cancellationToken);
 
             // Invia il codice generato al Sender
             byte[] response = JsonSerializer.SerializeToUtf8Bytes(new CodeCreatedResponse("CODE_CREATED", code), SignalingJsonContext.Default.CodeCreatedResponse);

@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write # Required to update the badges branch (gh-pages / badges)
+      contents: write # Required to update repository files / badges
       pull-requests: write # Allows posting PR coverage comments
 
     steps:
@@ -48,7 +48,7 @@ jobs:
         find . -name "*.cobertura.xml" -exec cp {} ./coverage/ \;
         ls -R ./coverage
 
-    # Generates coverage summary and checks threshold bounds
+    # Generates coverage summary (it automatically generates a badge file if 'badge: true')
     - name: Code Coverage Summary & Threshold Check
       uses: irongut/CodeCoverageSummary@v1.3.0
       with:
@@ -59,15 +59,14 @@ jobs:
         format: markdown
         output: file
 
-    # Generates dynamic coverage badge and pushes to 'badges' directory
-    - name: Generate Coverage Badge
+    # Organizes and commits coverage badge
+    - name: Commit Coverage Badge
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: cicirello/jacoco-badge-generator@v2
-      with:
-        jacoco-csv-file: coverage/*.cobertura.xml
-        badges-directory: .github/badges
-        generate-coverage-badge: true
-        coverage-badge-filename: coverage.svg
+      run: |
+        mkdir -p .github/badges
+        if [ -f code-coverage-badge.svg ]; then
+          mv code-coverage-badge.svg .github/badges/coverage.svg
+        fi
 
     # Posts detailed coverage breakdown on open Pull Requests
     - name: Add PR Coverage Comment

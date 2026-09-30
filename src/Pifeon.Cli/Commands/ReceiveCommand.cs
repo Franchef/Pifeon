@@ -39,7 +39,7 @@ public sealed class ReceiveCommand : AsyncCommand<ReceiveSettings>
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         // 1. Utilizzo della Facade PifeonServer
-        await using IPifeonServer pifeonServer = new PifeonServer(customUrl: settings.ServerUrl);
+        await using PifeonServer pifeonServer = new PifeonServer(customUrl: settings.ServerUrl);
 
         // 2. Health Check preventivo
         bool isServerHealthy = await AnsiConsole.Status()

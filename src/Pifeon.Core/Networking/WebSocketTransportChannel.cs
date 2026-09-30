@@ -8,16 +8,16 @@ namespace Pifeon.Core.Networking;
 
 public sealed class WebSocketTransportChannel : ITransportChannel
 {
-    private readonly ClientWebSocket _webSocket;
+    private readonly WebSocket _webSocket;
     private readonly bool _ownsWebSocket;
     private bool _disposed;
 
     public bool IsConnected => _webSocket.State == WebSocketState.Open;
 
     /// <summary>
-    /// Costruttore che accetta un'istanza esistente di ClientWebSocket o ne crea una nuova.
+    /// Costruttore che accetta un'istanza esistente di WebSocket o ne crea una nuova.
     /// </summary>
-    public WebSocketTransportChannel(ClientWebSocket webSocket, bool ownsWebSocket = true)
+    public WebSocketTransportChannel(WebSocket webSocket, bool ownsWebSocket = true)
     {
         _webSocket = webSocket ?? throw new ArgumentNullException(nameof(webSocket));
         _ownsWebSocket = ownsWebSocket;

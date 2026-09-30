@@ -1,8 +1,11 @@
 using System.Net.WebSockets;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using Pifeon.Core.Abstractions;
 using Pifeon.Core.Services;
 using Pifeon.Core.Signaling.Messages;
+using Pifeon.Core.Signaling.Models;
 using Pifeon.Server;
 
 WebApplicationBuilder builder = WebApplication.CreateSlimBuilder(args);
@@ -21,6 +24,39 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 // Registra la gestione sessioni in-memory
 builder.Services.AddSingleton<IPairingManager<WebSocket>, PairingManager<WebSocket> >();
 
+const string IpRateLimitPolicyName = "IpRateLimit";
+
+// Rate Limiter nativo di ASP.NET Core per prevenire bruteforce e DDoS
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Politica di Rate Limiting basata su IP Pubblico del Router + Client-Id del singolo dispositivo
+    options.AddPolicy(policyName: IpRateLimitPolicyName, httpContext =>
+    {
+        string clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        // Se il client non invia l'header custom X-Pifeon-Client-Id, usiamo "anonymous"
+        string clientId = httpContext.Request.Headers["X-Pifeon-Client-Id"].ToString();
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            clientId = "anonymous";
+        }
+
+        // Chiave composita: protegge l'IP ma distingue i client dietro lo stesso NAT
+        string partitionKey = $"{clientIp}:{clientId}";
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: partitionKey,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,                  // Max 5 tentativi di sessione/join
+                Window = TimeSpan.FromMinutes(1), // Entro la finestra di 1 minuto
+                QueueLimit = 0                    // Nessuna coda: rigetta subito con HTTP 429
+            });
+    });
+});
+
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
@@ -37,20 +73,52 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseRateLimiter();
+
 // Abilita i WebSockets
 app.UseWebSockets(new WebSocketOptions
 {
     KeepAliveInterval = TimeSpan.FromSeconds(15)
 });
 
-// Endpoint di Pairing unico via WebSockets
-// Endpoint WebSocket per il signaling / pairing
-app.Map("/ws/pairing", async (HttpContext context, CancellationToken cancellationToken) => 
+
+// -------------------------------------------------------------------------
+// Rotta A: Creazione Sessione per il Sender
+// -------------------------------------------------------------------------
+app.MapGet("/ws/session/create", async (HttpContext context, [FromServices]IPairingManager<WebSocket> manager) =>
 {
-    // Risoluzione esplicita del servizio dalla Dependency Injection
-    IPairingManager<WebSocket> manager = context.RequestServices.GetRequiredService<IPairingManager<WebSocket>>();
-    await WebSocketHandler.HandlePairingAsync(context, manager, cancellationToken);
-});
+    if (!context.WebSockets.IsWebSocketRequest)
+    {
+        return Results.BadRequest(new { error = "È richiesta una connessione WebSocket." });
+    }
+
+    using WebSocket webSocket = await context.WebSockets.AcceptWebSocketAsync();
+    await WebSocketHandler.HandleSenderAsync(webSocket, manager, context.RequestAborted);
+
+    return Results.Empty;
+}).RequireRateLimiting(IpRateLimitPolicyName);
+
+// -------------------------------------------------------------------------
+// Rotta B: Join del Receiver tramite Codice a 6 cifre nell'URL
+// -------------------------------------------------------------------------
+app.MapGet("/ws/session/join/{code}", async (string code, HttpContext context, [FromServices]IPairingManager<WebSocket> manager) =>
+{
+    if (!context.WebSockets.IsWebSocketRequest)
+    {
+        return Results.BadRequest(new { error = "È richiesta una connessione WebSocket." });
+    }
+
+    // Risposta HTTP 404 immediata prima ancora di allocare il WebSocket se il codice non esiste
+    if (!manager.TryGetSession(code, out PairingSession<WebSocket>? session) || session == null)
+    {
+        return Results.NotFound(new { error = "Codice sessione non trovato o scaduto." });
+    }
+
+    using WebSocket webSocket = await context.WebSockets.AcceptWebSocketAsync();
+    await WebSocketHandler.HandleReceiverAsync(code, webSocket, session, manager, context.RequestAborted);
+
+    return Results.Empty;
+}).RequireRateLimiting(IpRateLimitPolicyName);
 
 // Health check endpoint per Aspire / Docker
 app

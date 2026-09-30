@@ -42,7 +42,7 @@ public sealed class SendCommand : AsyncCommand<SendSettings>
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         // 2. Utilizzo della Facade PifeonServer
-        await using IPifeonServer pifeonServer = new PifeonServer(customUrl: settings.ServerUrl);
+        await using PifeonServer pifeonServer = new PifeonServer(customUrl: settings.ServerUrl);
 
         // 3. Health Check preventivo
         bool isServerHealthy = await AnsiConsole.Status()

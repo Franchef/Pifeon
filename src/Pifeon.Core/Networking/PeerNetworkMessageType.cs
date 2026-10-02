@@ -1,6 +1,6 @@
-﻿namespace Pifeon.Core.Networking;
+namespace Pifeon.Core.Networking;
 
-public enum MessageType : byte
+public enum PeerNetworkMessageType : byte
 {
     Handshake = 1,
     Manifest = 2,

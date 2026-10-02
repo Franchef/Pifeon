@@ -2,7 +2,7 @@
 
 namespace Pifeon.Core.Abstractions;
 
-public interface IMessageChannel : IAsyncDisposable
+public interface IServerMessageChannel : IAsyncDisposable
 {
     /// <summary>
     /// Statuto della connessione di rete sottostante.
@@ -12,12 +12,12 @@ public interface IMessageChannel : IAsyncDisposable
     /// <summary>
     /// Invia un messaggio/chunk fortemente tipizzato sul canale.
     /// </summary>
-    ValueTask SendMessageAsync(NetworkMessage message, CancellationToken ct = default);
+    ValueTask SendMessageAsync(ServerNetworkMessage message, CancellationToken ct = default);
 
     /// <summary>
     /// Riceve il prossimo messaggio dal canale.
     /// </summary>
-    ValueTask<NetworkMessage> ReceiveMessageAsync(CancellationToken ct = default);
+    ValueTask<ServerNetworkMessage> ReceiveMessageAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Chiude pulitamente il canale di messaggistica.

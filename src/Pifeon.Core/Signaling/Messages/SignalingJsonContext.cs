@@ -1,11 +1,14 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
+using Pifeon.Core.Networking;
 
 namespace Pifeon.Core.Signaling.Messages;
 
 [ExcludeFromCodeCoverage]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(HealthyStatus))]
+[JsonSerializable(typeof(ServerNetworkMessage))]
+[JsonSerializable(typeof(PeerNetworkMessage))]
 [JsonSerializable(typeof(CreateSessionRequest))]
 [JsonSerializable(typeof(JoinSessionRequest))]
 [JsonSerializable(typeof(CodeCreatedResponse))]

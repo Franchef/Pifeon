@@ -143,10 +143,22 @@ public sealed class PifeonServerTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateSessionHandleAsync_ShouldThrowException_WhenServerUnreachable()
+    {
+        await Assert.ThrowsAnyAsync<Exception>(() => _sut.CreateSessionHandleAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task JoinSessionAsync_ShouldThrowException_WhenServerUnreachable()
     {
         // Act & Assert
         await Assert.ThrowsAnyAsync<Exception>(() => _sut.JoinSessionAsync("123456", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task JoinSessionHandleAsync_ShouldThrowException_WhenServerUnreachable()
+    {
+        await Assert.ThrowsAnyAsync<Exception>(() => _sut.JoinSessionHandleAsync("123456", TestContext.Current.CancellationToken));
     }
 
     #endregion
@@ -161,6 +173,8 @@ public sealed class PifeonServerTests : IDisposable
         await server.DisposeAsync();
 
         // Act & Assert
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => server.CreateSessionHandleAsync(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => server.JoinSessionHandleAsync("123456", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<ObjectDisposedException>(() => server.CreateSessionAsync(TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<ObjectDisposedException>(() => server.JoinSessionAsync("123456", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<ObjectDisposedException>(() => server.IsHealthyAsync(TestContext.Current.CancellationToken));

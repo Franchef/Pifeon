@@ -1,11 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Net.WebSockets;
 using Pifeon.Core.Abstractions;
 using Pifeon.Core.Configuration;
+using Pifeon.Core.Exceptions;
 using Pifeon.Core.Networking;
 using Pifeon.Core.Services;
-using Pifeon.Core.Signaling;
 
 namespace Pifeon.Core;
 
@@ -24,34 +23,74 @@ public sealed class PifeonServer : IPifeonServer
         _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
     }
 
-    public async Task<ISender> CreateSessionAsync(CancellationToken ct = default)
+    public async Task<ISession> CreateSessionHandleAsync(CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        // 1. Creiamo il canale di trasporto concreto
-        WebSocketTransportChannel transportChannel = await WebSocketTransportChannel.ConnectAsync(ServerUrl, ct);
+        try
+        {
+            WebSocketTransportChannel transportChannel = await WebSocketTransportChannel.ConnectAsync(BuildSessionUri("/ws/session/create").ToString(), ct);
+            var serverChannel = new ServerMessageChannel(transportChannel);
+            var peerChannel = new PeerMessageChannel(transportChannel);
 
-        // 2. Iniettiamo il canale nel servizio di segnalazione
-        var signalingService = new WebSocketSignalingService(transportChannel);
+            return await PifeonSession.CreateSenderAsync(serverChannel, peerChannel, ct);
+        }
+        catch (WebSocketException ex) when (IsStatusInMessage(ex, "429"))
+        {
+            throw new CreateSessionRateLimitedException(ex.Message);
+        }
+    }
 
-        // 3. Iniettiamo sia la segnalazione sia il canale di trasporto in PifeonSender
-        var sender = new PifeonSender(signalingService, transportChannel);
+    public async Task<ISession> JoinSessionHandleAsync(string code, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
-        await sender.InitializeSessionAsync(ct);
-        return sender;
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            throw new ArgumentException("Session code is required.", nameof(code));
+        }
+
+        try
+        {
+            string normalizedCode = code.Trim();
+            WebSocketTransportChannel transportChannel = await WebSocketTransportChannel.ConnectAsync(BuildSessionUri($"/ws/session/join/{normalizedCode}").ToString(), ct);
+            var serverChannel = new ServerMessageChannel(transportChannel);
+            var peerChannel = new PeerMessageChannel(transportChannel);
+
+            return await PifeonSession.CreateReceiverAsync(normalizedCode, serverChannel, peerChannel, ct);
+        }
+        catch (WebSocketException ex) when (IsStatusInMessage(ex, "404"))
+        {
+            throw new SessionNotFoundException(code);
+        }
+    }
+
+    public async Task<ISender> CreateSessionAsync(CancellationToken ct = default)
+    {
+        ISession session = await CreateSessionHandleAsync(ct);
+        return await session.GetSenderAsync(ct);
     }
 
     public async Task<IReceiver> JoinSessionAsync(string code, CancellationToken ct = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ISession session = await JoinSessionHandleAsync(code, ct);
+        return await session.GetReceiverAsync(ct);
+    }
 
-        WebSocketTransportChannel transportChannel = await WebSocketTransportChannel.ConnectAsync(ServerUrl, ct);
-        var signalingService = new WebSocketSignalingService(transportChannel);
+    private Uri BuildSessionUri(string sessionPath)
+    {
+        Uri baseUri = new(ServerUrl, UriKind.Absolute);
 
-        var receiver = new PifeonReceiver(signalingService, transportChannel);
-        await receiver.ConnectAndGetManifestAsync(code, ct);
+        return new UriBuilder(baseUri)
+        {
+            Path = sessionPath,
+            Query = string.Empty
+        }.Uri;
+    }
 
-        return receiver;
+    private static bool IsStatusInMessage(Exception ex, string statusCode)
+    {
+        return ex.Message.Contains(statusCode, StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken ct = default)

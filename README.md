@@ -1,10 +1,10 @@
 # 🐦 Pifeon
 
-[![License: GPL v3](https://shields.io)](https://gnu.org)
 [![Build & Test Status](https://github.com/Franchef/Pifeon/actions/workflows/ci.yml/badge.svg)](https://github.com/Franchef/Pifeon/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
-[![Platform](https://shields.io)]()
+[![P2P Transfer](https://img.shields.io/badge/P2P-Transfer-green.svg)](#)
+[![End-to-End Encrypted](https://img.shields.io/badge/Encryption-E2E-darkgreen.svg)](#)
 
 **Pifeon** (from *Pigeon* + *File*) is an open-source, cross-platform software designed for encrypted **Peer-to-Peer (P2P) file and folder transfer/synchronization**. It works directly between devices without cloud intermediaries, data logging, or mandatory user registration.
 
@@ -17,6 +17,7 @@ Just like the homing pigeons of the past, Pifeon delivers your data straight to 
 - **Zero Cloud & Zero Accounts:** No registration, no email required, and no centralized database. Files travel strictly between nodes.
 - **Privacy-First & Copyleft:** Protected by the GNU GPLv3 license. End-to-End encrypted (AES-GCM / Seclink)—not even the signaling server can peek into your data.
 - **Smart Hole Punching:** Seamlessly bypasses firewalls and home NATs (via STUN/ICE protocols) to establish direct connections anywhere.
+- **Real-Time Progress Tracking:** Live transfer statistics showing bytes exchanged, transfer speed, and current file being transferred across all platforms (CLI/GUI).
 - **Lightweight & High-Performance:** Written in modern C# and optimized for low RAM consumption, even when streaming multi-gigabyte folders.
 
 ---
@@ -53,12 +54,14 @@ src/
 3. **The Receiver** enters the 6-digit code into their Pifeon instance.
 4. The server exchanges public IPs (NAT Traversal) and introduces the two PCs.
 5. A direct P2P channel is established, the code is wiped from the server, and the file is streamed in encrypted chunks.
+6. **Both parties see live progress**, including cumulative bytes transferred, transfer speed, and the current file being transmitted.
 
 ### Scenario B: Continuous Synchronization (Future-Proof Evolution)
 Leveraging Dependency Injection, the `ISignalingService` can be extended with an authenticated module:
 - Peers exchange a permanent asymmetric key once.
 - The native .NET `FileSystemWatcher` monitors folder changes in real time.
 - Clients silently connect in the background to sync only the modified chunks (*delta sync*) of the files.
+- Real-time progress tracking adapts to background operation patterns.
 
 ---
 

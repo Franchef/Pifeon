@@ -13,10 +13,10 @@
          i file emessi con [ExcludeFromCodeCoverage] / [GeneratedCode] -->
 		<InjectAttributeForGeneratedCode>true</InjectAttributeForGeneratedCode>
 	</PropertyGroup>
-	<!-- Esclude automaticamente i file di integrazione generati da OpenAPI e Minimal API -->
+	<!-- Esclude automaticamente i file di integrazione generati da OpenAPI e Minimal API --><!--
 	<ItemGroup>
 		<AssemblyAttribute Include="System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute" />
-	</ItemGroup>
+	</ItemGroup>-->
 	<ItemGroup>
 	  <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
 	</ItemGroup>

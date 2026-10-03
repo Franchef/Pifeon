@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
+using Pifeon.Core.Abstractions;
 using Pifeon.Core.Networking;
 
 namespace Pifeon.Core.Signaling.Messages;
@@ -15,4 +16,6 @@ namespace Pifeon.Core.Signaling.Messages;
 [JsonSerializable(typeof(ReceiverJoinedResponse))]
 [JsonSerializable(typeof(SignalDataMessage))]
 [JsonSerializable(typeof(ErrorResponse))]
+[JsonSerializable(typeof(TransferManifest))]
+[JsonSerializable(typeof(TransferItemInfo))]
 public partial class SignalingJsonContext : JsonSerializerContext;

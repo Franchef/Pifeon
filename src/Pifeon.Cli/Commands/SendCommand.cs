@@ -9,7 +9,7 @@ namespace Pifeon.Cli.Commands;
 
 public sealed class SendCommand : AsyncCommand<SendSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         [NotNull] CommandContext context,
         [NotNull] SendSettings settings,
         CancellationToken cancellationToken)

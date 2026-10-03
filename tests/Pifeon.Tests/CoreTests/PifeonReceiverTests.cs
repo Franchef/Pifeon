@@ -1,11 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.Json;
 using System.Timers;
 using Moq;
 using Pifeon.Core.Abstractions;
+using Pifeon.Core.Networking;
 using Pifeon.Core.Services;
 using Pifeon.Core.Signaling;
+using Pifeon.Core.Signaling.Messages;
 
 namespace Pifeon.Tests.CoreTests;
 
@@ -13,14 +16,16 @@ public sealed class PifeonReceiverTests : IDisposable
 {
     private readonly Mock<ISignalingService> _signalingServiceMock;
     private readonly Mock<ITransportChannel> _dataChannelMock;
+    private readonly Mock<IPeerMessageChannel> _peerChannelMock;
     private readonly PifeonReceiver _sut; // System Under Test
 
     public PifeonReceiverTests()
     {
         _signalingServiceMock = new Mock<ISignalingService>();
         _dataChannelMock = new Mock<ITransportChannel>();
+        _peerChannelMock = new Mock<IPeerMessageChannel>();
 
-        _sut = new PifeonReceiver(_signalingServiceMock.Object, _dataChannelMock.Object);
+        _sut = new PifeonReceiver(_peerChannelMock.Object);
     }
 
     public void Dispose()
@@ -31,23 +36,13 @@ public sealed class PifeonReceiverTests : IDisposable
     #region 1. Validation & Constructor Tests
 
     [Fact]
-    public void Constructor_ShouldThrowArgumentNullException_WhenSignalingServiceIsNull()
+    public void Constructor_ShouldThrowArgumentNullException_WhenPeerChannelIsNull()
     {
         // Act & Assert
         ArgumentNullException ex = Assert.Throws<ArgumentNullException>(() =>
-            new PifeonReceiver(null!, _dataChannelMock.Object));
+            new PifeonReceiver(null!));
 
-        Assert.Equal("signalingService", ex.ParamName);
-    }
-
-    [Fact]
-    public void Constructor_ShouldThrowArgumentNullException_WhenDataChannelIsNull()
-    {
-        // Act & Assert
-        ArgumentNullException ex = Assert.Throws<ArgumentNullException>(() =>
-            new PifeonReceiver(_signalingServiceMock.Object, null!));
-
-        Assert.Equal("dataChannel", ex.ParamName);
+        Assert.Equal("peerChannel", ex.ParamName);
     }
 
     #endregion
@@ -55,15 +50,27 @@ public sealed class PifeonReceiverTests : IDisposable
     #region 2. Method Execution Tests
 
     [Fact]
-    public async Task ConnectAndGetManifestAsync_ShouldCallJoinSessionAsyncAndReturnManifest()
+    public async Task ConnectAndGetManifestAsync_ShouldReturnManifest()
     {
         // Arrange
         string sessionCode = "123456";
         using var cts = new CancellationTokenSource();
 
-        _signalingServiceMock
-            .Setup(s => s.JoinSessionAsync(sessionCode, cts.Token))
-            .Returns(Task.CompletedTask)
+        // Setup the mock to return a manifest message
+        TransferManifest expectedManifest = new TransferManifest(1, 100, 
+            new List<TransferItemInfo> { new TransferItemInfo("test.txt", 100) });
+        string manifestJson = JsonSerializer.Serialize(expectedManifest, SignalingJsonContext.Default.TransferManifest);
+        byte[] manifestPayload = System.Text.Encoding.UTF8.GetBytes(manifestJson);
+
+        PeerNetworkMessage manifestMessage = new PeerNetworkMessage(
+            PeerNetworkMessageType.Manifest,
+            0,
+            manifestPayload
+        );
+
+        _peerChannelMock
+            .Setup(p => p.ReceiveMessageAsync(cts.Token))
+            .ReturnsAsync(manifestMessage)
             .Verifiable();
 
         // Act
@@ -71,7 +78,9 @@ public sealed class PifeonReceiverTests : IDisposable
 
         // Assert
         Assert.NotNull(manifest);
-        _signalingServiceMock.Verify(s => s.JoinSessionAsync(sessionCode, cts.Token), Times.Once);
+        Assert.Equal(expectedManifest.TotalFiles, manifest.TotalFiles);
+        Assert.Equal(expectedManifest.TotalSizeBytes, manifest.TotalSizeBytes);
+        _peerChannelMock.Verify(p => p.ReceiveMessageAsync(cts.Token), Times.Once);
     }
 
     [Fact]
@@ -80,6 +89,23 @@ public sealed class PifeonReceiverTests : IDisposable
         // Arrange
         string destinationDir = @"C:\Downloads\Pifeon";
         using var cts = new CancellationTokenSource();
+
+        // Must call ConnectAndGetManifestAsync first
+        TransferManifest manifest = new TransferManifest(0, 0, []);
+        string manifestJson = JsonSerializer.Serialize(manifest, SignalingJsonContext.Default.TransferManifest);
+        byte[] manifestPayload = System.Text.Encoding.UTF8.GetBytes(manifestJson);
+
+        PeerNetworkMessage manifestMessage = new PeerNetworkMessage(
+            PeerNetworkMessageType.Manifest,
+            0,
+            manifestPayload
+        );
+
+        _peerChannelMock
+            .Setup(p => p.ReceiveMessageAsync(cts.Token))
+            .ReturnsAsync(manifestMessage);
+
+        await _sut.ConnectAndGetManifestAsync("123456", cts.Token);
 
         // Act & Assert (verifica che non vengano sollevate eccezioni)
         await _sut.ReceiveToDirectoryAsync(destinationDir, cts.Token);
@@ -90,16 +116,11 @@ public sealed class PifeonReceiverTests : IDisposable
     #region 3. Lifecycle & Disposal Tests
 
     [Fact]
-    public async Task DisposeAsync_ShouldDisposeDataChannelAndSignalingService()
+    public async Task DisposeAsync_ShouldDisposePeerChannel()
     {
         // Arrange
-        _dataChannelMock
-            .Setup(c => c.DisposeAsync())
-            .Returns(ValueTask.CompletedTask)
-            .Verifiable();
-
-        _signalingServiceMock
-            .Setup(s => s.DisposeAsync())
+        _peerChannelMock
+            .Setup(p => p.DisposeAsync())
             .Returns(ValueTask.CompletedTask)
             .Verifiable();
 
@@ -107,24 +128,21 @@ public sealed class PifeonReceiverTests : IDisposable
         await _sut.DisposeAsync();
 
         // Assert
-        _dataChannelMock.Verify(c => c.DisposeAsync(), Times.Once);
-        _signalingServiceMock.Verify(s => s.DisposeAsync(), Times.Once);
+        _peerChannelMock.Verify(p => p.DisposeAsync(), Times.Once);
     }
 
     [Fact]
     public async Task DisposeAsync_ShouldBeIdempotent_WhenCalledMultipleTimes()
     {
         // Arrange
-        _dataChannelMock.Setup(c => c.DisposeAsync()).Returns(ValueTask.CompletedTask);
-        _signalingServiceMock.Setup(s => s.DisposeAsync()).Returns(ValueTask.CompletedTask);
+        _peerChannelMock.Setup(p => p.DisposeAsync()).Returns(ValueTask.CompletedTask);
 
         // Act
         await _sut.DisposeAsync();
-        await _sut.DisposeAsync(); // Seconda chiamata
+        await _sut.DisposeAsync(); // Second call
 
-        // Assert: I metodi DisposeAsync delle dipendenze devono essere stati invocati esattamente una sola volta
-        _dataChannelMock.Verify(c => c.DisposeAsync(), Times.Once);
-        _signalingServiceMock.Verify(s => s.DisposeAsync(), Times.Once);
+        // Assert: DisposeAsync should be called only once
+        _peerChannelMock.Verify(p => p.DisposeAsync(), Times.Once);
     }
 
     #endregion

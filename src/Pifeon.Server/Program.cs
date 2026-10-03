@@ -46,12 +46,17 @@ builder.Services.AddRateLimiter(options =>
         // Chiave composita: protegge l'IP ma distingue i client dietro lo stesso NAT
         string partitionKey = $"{clientIp}:{clientId}";
 
+        // Usa limiti più alti per i test, limiti normali per produzione
+        bool isTestEnvironment = builder.Environment.IsEnvironment("Test");
+        int permitLimit = isTestEnvironment ? 1000 : 5;
+        TimeSpan window = TimeSpan.FromMinutes(1);
+
         return RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: partitionKey,
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 5,                  // Max 5 tentativi di sessione/join
-                Window = TimeSpan.FromMinutes(1), // Entro la finestra di 1 minuto
+                PermitLimit = permitLimit,        // 5 per produzione, 1000 per test
+                Window = window,                  // 1 minuto
                 QueueLimit = 0                    // Nessuna coda: rigetta subito con HTTP 429
             });
     });

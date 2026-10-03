@@ -1,59 +1,129 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Net;
-using System.Text;
+using System.Text.Json;
 using Pifeon.Core.Abstractions;
-using Pifeon.Core.Cryptography;
 using Pifeon.Core.IO;
 using Pifeon.Core.Networking;
 using Pifeon.Core.Signaling;
+using Pifeon.Core.Signaling.Messages;
 
 namespace Pifeon.Core.Services;
 
 public class PifeonSender : ISender
 {
-    private readonly ISignalingService _signalingService;
-    private readonly ITransportChannel _dataChannel;
+    private readonly IPeerMessageChannel _peerChannel;
+    private readonly ISignalingService? _legacySignalingService;
     private bool _disposed;
 
-    public string Code { get; private set; } = string.Empty;
+    private const int ChunkSize = 64 * 1024; // 64 KB chunks
+
+    public string Code { get; private set; }
     public bool IsExpired { get; private set; }
 
     public event Action? OnReceiverJoined;
     public event Action<long, long, string>? OnProgressChanged;
 
+    public PifeonSender(IPeerMessageChannel peerChannel, string code)
+    {
+        _peerChannel = peerChannel ?? throw new ArgumentNullException(nameof(peerChannel));
+        Code = code ?? throw new ArgumentNullException(nameof(code));
+    }
+
     public PifeonSender(ISignalingService signalingService, ITransportChannel dataChannel)
     {
-        _signalingService = signalingService ?? throw new ArgumentNullException(nameof(signalingService));
-        _dataChannel = dataChannel ?? throw new ArgumentNullException(nameof(dataChannel));
+        _legacySignalingService = signalingService ?? throw new ArgumentNullException(nameof(signalingService));
+        _peerChannel = new PeerMessageChannel(dataChannel ?? throw new ArgumentNullException(nameof(dataChannel)));
 
-        _signalingService.OnReceiverJoined += () => OnReceiverJoined?.Invoke();
+        _legacySignalingService.OnReceiverJoined += () => OnReceiverJoined?.Invoke();
     }
 
     public async Task<string> InitializeSessionAsync(CancellationToken ct = default)
     {
-        Code = await _signalingService.CreateSessionAsync(ct);
+        if (string.IsNullOrWhiteSpace(Code))
+        {
+            if (_legacySignalingService is null)
+            {
+                throw new InvalidOperationException("Session code is not available for this sender.");
+            }
+
+            Code = await _legacySignalingService.CreateSessionAsync(ct);
+        }
+
         return Code;
     }
 
     public async Task SendAsync(string sourcePath, CancellationToken ct = default)
     {
-        if (!string.IsNullOrEmpty(Code))
-        {
-            // 1. Scansione del percorso locale (file o cartella con calcolo SHA-256)
-            List<TransferItem> items = await FolderScanner.ScanPath(sourcePath).ToListAsync(ct);
-            long totalBytes = items.Sum(i => i.FileSize);
-
-            // 2. Attesa della connessione del ricevitore via segnalazione
-            await _signalingService.WaitForReceiverAsync(ct);
-        }
-        else
+        if (string.IsNullOrEmpty(Code))
         {
             throw new InvalidOperationException("Invocare prima InitializeSessionAsync().");
         }
 
-        // 3. Invio del Manifest e streaming dei dati sul canale di comunicazione astratto
-        // ... Logica di invio dei chunk tramite _dataChannel.SendAsync(...)
+        // 1. Scan the local path (file or folder with SHA-256 calculation)
+        List<TransferItem> items = await FolderScanner.ScanPath(sourcePath).ToListAsync(ct);
+        long totalBytes = items.Sum(i => i.FileSize);
+
+        // 2. For legacy compatibility wait for signaling; in session mode the connection is ready
+        if (_legacySignalingService is not null)
+        {
+            await _legacySignalingService.WaitForReceiverAsync(ct);
+        }
+
+        // 3. Send manifest
+        TransferManifest manifest = new TransferManifest(
+            items.Count,
+            totalBytes,
+            items.Select(i => new TransferItemInfo(i.RelativePath, i.FileSize)).ToList()
+        );
+
+        string manifestJson = JsonSerializer.Serialize(manifest, SignalingJsonContext.Default.TransferManifest);
+        byte[] manifestPayload = System.Text.Encoding.UTF8.GetBytes(manifestJson);
+
+        PeerNetworkMessage manifestMessage = new PeerNetworkMessage(
+            PeerNetworkMessageType.Manifest,
+            0,
+            manifestPayload
+        );
+
+        await _peerChannel.SendMessageAsync(manifestMessage, ct);
+
+        // 4. Stream chunks for each file
+        long totalBytesSent = 0;
+        long sequenceNumber = 1;
+
+        foreach (TransferItem item in items)
+        {
+            using FileStream fileStream = new FileStream(item.FullPath, FileMode.Open, FileAccess.Read);
+            {
+                byte[] buffer = new byte[ChunkSize];
+                int bytesRead;
+
+                while ((bytesRead = await fileStream.ReadAsync(buffer, 0, buffer.Length, ct)) > 0)
+                {
+                    // Send chunk
+                    PeerNetworkMessage chunkMessage = new PeerNetworkMessage(
+                        PeerNetworkMessageType.ChunkData,
+                        sequenceNumber,
+                        buffer[..bytesRead]
+                    );
+
+                    await _peerChannel.SendMessageAsync(chunkMessage, ct);
+
+                    // Wait for acknowledgment
+                    PeerNetworkMessage ackMessage = await _peerChannel.ReceiveMessageAsync(ct);
+                    if (ackMessage.Type != PeerNetworkMessageType.ChunkAck)
+                    {
+                        throw new InvalidOperationException($"Expected ChunkAck, received {ackMessage.Type}");
+                    }
+
+                    // Update progress
+                    totalBytesSent += bytesRead;
+                    OnProgressChanged?.Invoke(totalBytesSent, totalBytes, item.RelativePath);
+
+                    sequenceNumber++;
+                }
+            }
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -61,8 +131,12 @@ public class PifeonSender : ISender
         if (!_disposed)
         {
             _disposed = true;
-            await _dataChannel.DisposeAsync();
-            await _signalingService.DisposeAsync();
+            await _peerChannel.DisposeAsync();
+
+            if (_legacySignalingService is not null)
+            {
+                await _legacySignalingService.DisposeAsync();
+            }
         }
     }
 }

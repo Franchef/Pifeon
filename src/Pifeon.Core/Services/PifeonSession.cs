@@ -20,6 +20,8 @@ public sealed class PifeonSession : ISession
 
     public bool IsConnected => _connectedTcs.Task.IsCompletedSuccessfully;
 
+    public event Action? OnReceiverJoined;
+
     private PifeonSession(
         IServerMessageChannel serverChannel,
         IPeerMessageChannel peerChannel,
@@ -86,7 +88,7 @@ public sealed class PifeonSession : ISession
         }
 
         await WaitUntilConnectedAsync(ct);
-        return new PifeonSender(_peerChannel, Code);
+        return new PifeonSender(_peerChannel, Code, this);
     }
 
     public async Task<IReceiver> GetReceiverAsync(CancellationToken ct = default)
@@ -133,9 +135,38 @@ public sealed class PifeonSession : ISession
 
         _disposed = true;
 
-        await CloseAsync(CancellationToken.None);
-        await _peerChannel.DisposeAsync();
-        await _serverChannel.DisposeAsync();
+        // Use a bounded timeout for cleanup to prevent indefinite waits on socket operations
+        using CancellationTokenSource cleanupCts = new(TimeSpan.FromSeconds(5));
+        try
+        {
+            await CloseAsync(cleanupCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Close timed out; continue with resource cleanup anyway
+        }
+        catch
+        {
+            // Other errors during close; continue with resource cleanup
+        }
+
+        try
+        {
+            await _peerChannel.DisposeAsync();
+        }
+        catch
+        {
+            // Best effort cleanup
+        }
+
+        try
+        {
+            await _serverChannel.DisposeAsync();
+        }
+        catch
+        {
+            // Best effort cleanup
+        }
     }
 
     private async Task InitializeSenderAsync(CancellationToken ct)
@@ -148,6 +179,9 @@ public sealed class PifeonSession : ISession
 
         ServerNetworkMessage response = await _serverChannel.ReceiveMessageAsync(ct);
         Code = ParseCodeCreatedResponse(response);
+
+        // Sender is connected once the session code is created
+        _connectedTcs.TrySetResult(true);
     }
 
     private async Task InitializeReceiverAsync(string code, CancellationToken ct)
@@ -171,6 +205,8 @@ public sealed class PifeonSession : ISession
         if (string.Equals(type, "RECEIVER_JOINED", StringComparison.OrdinalIgnoreCase)
             || message.Type == ServerNetworkMessageType.IpExchanges)
         {
+            // Fire the receiver joined event before marking as connected
+            OnReceiverJoined?.Invoke();
             _connectedTcs.TrySetResult(true);
             return;
         }

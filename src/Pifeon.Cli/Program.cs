@@ -1,7 +1,10 @@
-﻿using Pifeon.Cli.Commands;
+﻿using System.Diagnostics.CodeAnalysis;
+using Pifeon.Cli.Commands;
 using Spectre.Console.Cli;
 
+#pragma warning disable IL3050
 CommandApp app = new();
+#pragma warning restore IL3050
 
 app.Configure(config =>
 {

@@ -29,6 +29,17 @@ public class PifeonSender : ISender
         Code = code ?? throw new ArgumentNullException(nameof(code));
     }
 
+    public PifeonSender(IPeerMessageChannel peerChannel, string code, PifeonSession? session = null)
+    {
+        _peerChannel = peerChannel ?? throw new ArgumentNullException(nameof(peerChannel));
+        Code = code ?? throw new ArgumentNullException(nameof(code));
+
+        if (session != null)
+        {
+            session.OnReceiverJoined += () => OnReceiverJoined?.Invoke();
+        }
+    }
+
     public PifeonSender(ISignalingService signalingService, ITransportChannel dataChannel)
     {
         _legacySignalingService = signalingService ?? throw new ArgumentNullException(nameof(signalingService));

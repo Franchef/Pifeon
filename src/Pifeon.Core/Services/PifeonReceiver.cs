@@ -45,12 +45,7 @@ public class PifeonReceiver : IReceiver
 
         // Deserialize manifest from payload (JSON encoded)
         string manifestJson = System.Text.Encoding.UTF8.GetString(manifestMessage.Payload.Span);
-        TransferManifest? manifest = JsonSerializer.Deserialize(manifestJson, SignalingJsonContext.Default.TransferManifest);
-
-        if (manifest is null)
-        {
-            throw new InvalidOperationException("Failed to deserialize transfer manifest");
-        }
+        TransferManifest? manifest = JsonSerializer.Deserialize(manifestJson, SignalingJsonContext.Default.TransferManifest) ?? throw new InvalidOperationException("Failed to deserialize transfer manifest");
 
         _manifest = manifest;
         return manifest;

@@ -5,7 +5,7 @@ namespace Pifeon.Core.Networking;
 public class TransportPackage
 {
     public PackageType Type { get; set; }
-    public byte[] Payload { get; set; } = Array.Empty<byte>();
+    public byte[] Payload { get; set; } = [];
 
     public byte[] Serialize()
     {

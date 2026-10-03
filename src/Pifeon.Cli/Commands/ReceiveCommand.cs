@@ -130,35 +130,3 @@ public sealed class ReceiveCommand : AsyncCommand<ReceiveSettings>
         return 0;
     }
 }
-//                                downloadTask.MaxValue = totalBytes;
-//                            }
-
-//                            downloadTask.Value = bytesReceived;
-
-//                            if (!string.IsNullOrEmpty(currentFile))
-//                            {
-//                                downloadTask.Description = $"[green]Ricezione:[/] {Path.GetFileName(currentFile)}";
-//                            }
-//                        };
-
-//                        // Avvio effettivo del download verso la cartella di destinazione
-//                        await receiver.ReceiveToDirectoryAsync(destFolder, cts.Token);
-//                    });
-
-//                AnsiConsole.MarkupLine("\n[bold green]✔ Download completato con successo![/]");
-//            }
-//            catch (OperationCanceledException)
-//            {
-//                AnsiConsole.MarkupLine("\n[yellow]Download interrotto dall'utente.[/]");
-//                return 0;
-//            }
-//            catch (Exception ex)
-//            {
-//                AnsiConsole.MarkupLine("\n[bold red]Errore durante la ricezione P2P:[/] {0}", ex.Message);
-//                return 1;
-//            }
-//        }
-
-//        return 0;
-//    }
-//}

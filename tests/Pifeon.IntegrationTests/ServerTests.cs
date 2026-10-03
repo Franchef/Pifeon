@@ -122,7 +122,7 @@ public class SignalingIntegrationTests : IClassFixture<ServerFixture>
         using WebSocket receiverSocket = await wsClient.ConnectAsync(new Uri(_factory.Server.BaseAddress, $"/ws/session/join/{codeCreatedResponse.Code}"), cts.Token);
         _ = await ReceiveTextMessageAsync(senderSocket, cts.Token);
 
-        byte[] payload = Enumerable.Range(1, 128).Select(i => (byte)i).ToArray();
+        byte[] payload = [.. Enumerable.Range(1, 128).Select(i => (byte)i)];
         await senderSocket.SendAsync(payload, WebSocketMessageType.Binary, true, cts.Token);
 
         byte[] relayed = await ReceiveBinaryMessageAsync(receiverSocket, cts.Token);
@@ -194,7 +194,7 @@ public class SignalingIntegrationTests : IClassFixture<ServerFixture>
             try
             {
                 // Use a separate cleanup timeout (1 second) to prevent cleanup itself from hanging
-                using CancellationTokenSource cleanupCts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+                using CancellationTokenSource cleanupCts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken, ct);
                 cleanupCts.CancelAfter(1000);
                 await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "test-end", cleanupCts.Token);
             }
@@ -343,7 +343,7 @@ public class RateLimitIntegrationTests : IClassFixture<ProductionRateLimitServer
             try
             {
                 // Use a separate cleanup timeout (1 second) to prevent cleanup itself from hanging
-                using CancellationTokenSource cleanupCts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+                using CancellationTokenSource cleanupCts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken, ct);
                 cleanupCts.CancelAfter(1000);
                 await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "test-end", cleanupCts.Token);
             }

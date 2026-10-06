@@ -10,12 +10,12 @@ app.Configure(config =>
 {
     config.SetApplicationName("pifeon");
 
-    // Registrazione esplicita AOT-safe dei comandi
+    // Explicit AOT-safe command registration
     config.AddCommand<SendCommand>("send")
-          .WithDescription("Invia un file o una cartella a un peer remoto aprendo una sessione di pairing.");
+          .WithDescription("Sends a file or folder to a remote peer by opening a pairing session.");
 
     config.AddCommand<ReceiveCommand>("receive")
-          .WithDescription("Riceve file da un peer tramite il codice di pairing a 6 cifre.");
+          .WithDescription("Receives files from a peer using the 6-digit pairing code.");
 });
 
 return await app.RunAsync(args);

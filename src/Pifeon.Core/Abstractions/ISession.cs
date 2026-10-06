@@ -17,10 +17,10 @@ public interface ISession : IAsyncDisposable
 
 public interface ISenderSession : ISession
 {
-    new Task<ISender> GetSenderAsync(CancellationToken ct = default);
+    Task<ISender> GetSenderAsync(CancellationToken ct = default);
 }
 
 public interface IReceiverSession : ISession
 {
-    new Task<IReceiver> GetReceiverAsync(CancellationToken ct = default);
+    Task<IReceiver> GetReceiverAsync(CancellationToken ct = default);
 }

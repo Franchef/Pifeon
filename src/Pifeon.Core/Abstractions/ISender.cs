@@ -18,7 +18,7 @@ public interface ISender : IAsyncDisposable
     Task<string> InitializeSessionAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Avvia l'invio. 'sourcePath' può essere il percorso di un singolo file o di un'intera cartella.
+    /// Starts the send. 'sourcePath' can be either the path of a single file or an entire folder.
     /// </summary>
     Task SendAsync(string sourcePath, CancellationToken ct = default);
 }

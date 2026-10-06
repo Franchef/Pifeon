@@ -63,7 +63,7 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
 
         // Act & Assert
         InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => channel.SendAsync(data, _cts.Token).AsTask());
-        Assert.Contains("Il canale WebSocket non è connesso", ex.Message);
+        Assert.Contains("The WebSocket channel is not connected", ex.Message);
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
 
         // Act & Assert
         InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => channel.ReceiveAsync(buffer, _cts.Token).AsTask());
-        Assert.Contains("Il canale WebSocket non è connesso", ex.Message);
+        Assert.Contains("The WebSocket channel is not connected", ex.Message);
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class WebSocketTransportChannelTests : IAsyncLifetime
         // Act
         int bytesRead = await channel.ReceiveAsync(buffer, _cts.Token);
 
-        // Assert: Se il messaggio ricevuto è Close, il metodo restituisce 0 e chiama CloseAsync
+        // Assert: If the received message is Close, the method returns 0 and calls CloseAsync
         Assert.Equal(0, bytesRead);
 
         await serverTask;

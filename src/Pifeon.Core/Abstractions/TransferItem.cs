@@ -10,5 +10,5 @@ public record TransferItem(
     string RelativePath,// es. "foto.jpg" oppure "Progetto/Documenti/report.pdf"
     long FileSize,      // Dimensione in byte
     string FullPath,    // Percorso locale assoluto su disco
-    string Hash         // Hash del file (ad esempio SHA256) per verifica integrità
+    string Hash         // File hash (e.g., SHA256) for integrity verification
 );

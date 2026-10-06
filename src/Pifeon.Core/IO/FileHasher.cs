@@ -8,7 +8,7 @@ namespace Pifeon.Core.IO;
 public static class FileHasher
 {
     /// <summary>
-    /// Calcola l'hash SHA-256 di un file in modalità streaming asincrono.
+    /// Calculates the SHA-256 hash of a file in async streaming mode.
     /// </summary>
     public static async Task<string> ComputeHashAsync(string filePath, CancellationToken ct = default)
     {

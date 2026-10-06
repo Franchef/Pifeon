@@ -93,7 +93,7 @@ public sealed class FolderScannerTests : IDisposable
     [Fact]
     public async Task ScanPath_ShouldReturnEmptySequence_WhenDirectoryIsEmptyAsync()
     {
-        // Arrange: _testDirectory è già creata ed è vuota
+        // Arrange: _testDirectory is already created and is empty
 
         // Act
         List<TransferItem> result = await FolderScanner.ScanPath(_testDirectory).ToListAsync(TestContext.Current.CancellationToken);

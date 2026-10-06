@@ -8,7 +8,7 @@ public interface IPifeonServer : IAsyncDisposable, IDisposable
     string ServerUrl { get; }
 
     /// <summary>
-    /// Verifica se il server di segnalazione è raggiungibile ed è operativo.
+    /// Verifies if the signaling server is reachable and operational.
     /// </summary>
     Task<bool> IsHealthyAsync(CancellationToken ct = default);
 
@@ -24,13 +24,13 @@ public interface IPifeonServer : IAsyncDisposable, IDisposable
 
     /// <summary>
     /// Crea una nuova sessione di trasferimento e restituisce il mittente pronto col codice.
-    /// API di compatibilità: preferire CreateSessionHandleAsync.
+    /// Compatibility API: prefer CreateSessionHandleAsync.
     /// </summary>
     Task<ISender> CreateSessionAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Si unisce a una sessione esistente tramite il codice a 6 cifre e restituisce il ricevitore.
-    /// API di compatibilità: preferire JoinSessionHandleAsync.
+    /// Compatibility API: prefer JoinSessionHandleAsync.
     /// </summary>
     Task<IReceiver> JoinSessionAsync(string code, CancellationToken ct = default);
 }

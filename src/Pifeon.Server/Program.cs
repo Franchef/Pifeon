@@ -11,8 +11,8 @@ using Pifeon.Server;
 WebApplicationBuilder builder = WebApplication.CreateSlimBuilder(args);
 
 // =========================================================================
-// 1. REGISTRAZIONE SERVICE DEFAULTS (Prima di builder.Build())
-// Configura OpenTelemetry (Metrics, Traces, Logging), Health Checks e Resiliency
+// 1. SERVICE DEFAULTS REGISTRATION (Before builder.Build())
+// Configures OpenTelemetry (Metrics, Traces, Logging), Health Checks and Resiliency
 // =========================================================================
 builder.AddServiceDefaults();
 
@@ -21,32 +21,32 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, Pifeon.Core.Signaling.Messages.SignalingJsonContext.Default);
 });
 
-// Registra la gestione sessioni in-memory
+// Register in-memory session management
 builder.Services.AddSingleton<IPairingManager<WebSocket>, PairingManager<WebSocket> >();
 
 const string IpRateLimitPolicyName = "IpRateLimit";
 
-// Rate Limiter nativo di ASP.NET Core per prevenire bruteforce e DDoS
+// Native ASP.NET Core rate limiter to prevent brute force and DDoS
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    // Politica di Rate Limiting basata su IP Pubblico del Router + Client-Id del singolo dispositivo
+    // Rate limiting policy based on router public IP + individual device Client-Id
     options.AddPolicy(policyName: IpRateLimitPolicyName, httpContext =>
     {
         string clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-        // Se il client non invia l'header custom X-Pifeon-Client-Id, usiamo "anonymous"
+        // If the client does not send the custom X-Pifeon-Client-Id header, use "anonymous"
         string clientId = httpContext.Request.Headers["X-Pifeon-Client-Id"].ToString();
         if (string.IsNullOrWhiteSpace(clientId))
         {
             clientId = "anonymous";
         }
 
-        // Chiave composita: protegge l'IP ma distingue i client dietro lo stesso NAT
+        // Composite key: protects IP but distinguishes clients behind the same NAT
         string partitionKey = $"{clientIp}:{clientId}";
 
-        // Usa limiti più alti per i test, limiti normali per produzione
+        // Uses higher limits for testing, normal limits for production
         bool isTestEnvironment = builder.Environment.IsEnvironment("Test");
         int permitLimit = isTestEnvironment ? 1000 : 5;
         TimeSpan window = TimeSpan.FromMinutes(1);
@@ -55,9 +55,9 @@ builder.Services.AddRateLimiter(options =>
             partitionKey: partitionKey,
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = permitLimit,        // 5 per produzione, 1000 per test
-                Window = window,                  // 1 minuto
-                QueueLimit = 0                    // Nessuna coda: rigetta subito con HTTP 429
+                PermitLimit = permitLimit,        // 5 for production, 1000 for testing
+                Window = window,                  // 1 minute
+                QueueLimit = 0                    // No queue: reject immediately with HTTP 429
             });
     });
 });
@@ -68,8 +68,8 @@ builder.Services.AddOpenApi();
 WebApplication app = builder.Build();
 
 // =========================================================================
-// 2. MAPPATURA ENDPOINT SERVICE DEFAULTS (Dopo builder.Build())
-// Espone gli endpoint di Health Check (/health, /alive) per Aspire e Docker
+// 2. SERVICE DEFAULTS ENDPOINT MAPPING (After builder.Build())
+// Exposes Health Check endpoints (/health, /alive) for Aspire and Docker
 // =========================================================================
 app.MapDefaultEndpoints();
 
@@ -80,7 +80,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseRateLimiter();
 
-// Abilita i WebSockets
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+// Enable WebSockets
 app.UseWebSockets(new WebSocketOptions
 {
     KeepAliveInterval = TimeSpan.FromSeconds(15)
@@ -88,13 +91,13 @@ app.UseWebSockets(new WebSocketOptions
 
 
 // -------------------------------------------------------------------------
-// Rotta A: Creazione Sessione per il Sender
+// Route A: Create session for the Sender
 // -------------------------------------------------------------------------
 app.MapGet("/ws/session/create", async (HttpContext context, [FromServices]IPairingManager<WebSocket> manager) =>
 {
     if (!context.WebSockets.IsWebSocketRequest)
     {
-        return Results.BadRequest(new { error = "È richiesta una connessione WebSocket." });
+        return Results.BadRequest(new { error = "A WebSocket connection is required." });
     }
 
     using WebSocket webSocket = await context.WebSockets.AcceptWebSocketAsync();
@@ -104,19 +107,19 @@ app.MapGet("/ws/session/create", async (HttpContext context, [FromServices]IPair
 }).RequireRateLimiting(IpRateLimitPolicyName);
 
 // -------------------------------------------------------------------------
-// Rotta B: Join del Receiver tramite Codice a 6 cifre nell'URL
+// Route B: Receiver join using 6-digit code in the URL
 // -------------------------------------------------------------------------
 app.MapGet("/ws/session/join/{code}", async (string code, HttpContext context, [FromServices]IPairingManager<WebSocket> manager) =>
 {
     if (!context.WebSockets.IsWebSocketRequest)
     {
-        return Results.BadRequest(new { error = "È richiesta una connessione WebSocket." });
+        return Results.BadRequest(new { error = "A WebSocket connection is required." });
     }
 
-    // Risposta HTTP 404 immediata prima ancora di allocare il WebSocket se il codice non esiste
+    // Immediate HTTP 404 response before allocating the WebSocket if code does not exist
     if (!manager.TryGetSession(code, out PairingSession<WebSocket>? session) || session == null)
     {
-        return Results.NotFound(new { error = "Codice sessione non trovato o scaduto." });
+        return Results.NotFound(new { error = "Session code not found or expired." });
     }
 
     using WebSocket webSocket = await context.WebSockets.AcceptWebSocketAsync();

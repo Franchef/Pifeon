@@ -65,7 +65,7 @@ public class PifeonSender : ISender
     {
         if (string.IsNullOrEmpty(Code))
         {
-            throw new InvalidOperationException("Invocare prima InitializeSessionAsync().");
+            throw new InvalidOperationException("Initialize session first using InitializeSessionAsync().");
         }
 
         // 1. Scan the local path (file or folder with SHA-256 calculation)
@@ -86,7 +86,7 @@ public class PifeonSender : ISender
         TransferManifest manifest = new TransferManifest(
             items.Count,
             totalBytes,
-            items.Select(i => new TransferItemInfo(i.RelativePath, i.FileSize)).ToList()
+            [.. items.Select(i => new TransferItemInfo(i.RelativePath, i.FileSize))]
         );
 
         string manifestJson = JsonSerializer.Serialize(manifest, SignalingJsonContext.Default.TransferManifest);

@@ -116,7 +116,7 @@ public class P2PConnectionManagerTests
         byte[] receivedPayload = await receiverManager.ReceiveBytesAsync(TestContext.Current.CancellationToken);
         await sendTask;
 
-        // Assert integrità dati
+        // Assert data integrity
         Assert.Equal(payloadToSend, receivedPayload);
     }
 

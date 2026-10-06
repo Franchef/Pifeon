@@ -10,7 +10,7 @@ public static partial class PifeonConfigurationResolver
     public const string DefaultSignalingUrl = "wss://signaling.pifeon.io/ws/pairing";
 
     /// <summary>
-    /// Risolve l'URL finale del server di segnalazione applicando la gerarchia di priorità:
+    /// Resolves the final signaling server URL by applying the priority hierarchy:
     /// 1. Parametro passato da CLI o input GUI
     /// 2. Variabile d'ambiente (PIFEON_SIGNALING_URL)
     /// 3. Configurazione appsettings.json
@@ -18,7 +18,7 @@ public static partial class PifeonConfigurationResolver
     /// </summary>
     public static string ResolveSignalingUrl(string? cliOrGuiParamUrl = null, string? appSettingsUrl = null)
     {
-        // 1. Parametro da riga di comando (CLI) o input GUI (Priorità massima)
+        // 1. Command-line parameter (CLI) or GUI input (Highest priority)
         if (!string.IsNullOrWhiteSpace(cliOrGuiParamUrl))
         {
             return cliOrGuiParamUrl.Trim();

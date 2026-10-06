@@ -18,13 +18,13 @@ public sealed class SendCommand : AsyncCommand<SendSettings>
 
         if (!File.Exists(targetPath) && !Directory.Exists(targetPath))
         {
-            AnsiConsole.MarkupLine("[bold red]Errore:[/] Il percorso specificato non esiste: [yellow]{0}[/]", targetPath);
+            AnsiConsole.MarkupLine("[bold red]Error:[/] The specified path does not exist: [yellow]{0}[/]", targetPath);
             return 1;
         }
 
-        AnsiConsole.MarkupLine("[bold blue]Pifeon Sender[/] - Preparazione invio per [underline]{0}[/]", targetPath);
+        AnsiConsole.MarkupLine("[bold blue]Pifeon Sender[/] - Preparing to send [underline]{0}[/]", targetPath);
 
-        // 1. Scansione del percorso tramite FolderScanner
+        // 1. Scan the path using FolderScanner
         List<TransferItem> items;
         try
         {
@@ -32,60 +32,60 @@ public sealed class SendCommand : AsyncCommand<SendSettings>
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine("[bold red]Errore durante la scansione del percorso:[/] {0}", ex.Message);
+            AnsiConsole.MarkupLine("[bold red]Error scanning the path:[/] {0}", ex.Message);
             return 1;
         }
 
         long totalBytes = items.Sum(i => i.FileSize);
-        AnsiConsole.MarkupLine("[dim]Elementi trovati: {0} ({1} bytes)[/]\n", items.Count, totalBytes);
+        AnsiConsole.MarkupLine("[dim]Items found: {0} ({1} bytes)[/]\n", items.Count, totalBytes);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-        // 2. Utilizzo della Facade PifeonServer
+        // 2. Use the PifeonServer facade
         await using PifeonServer pifeonServer = new PifeonServer(customUrl: settings.ServerUrl);
 
-        // 3. Health Check preventivo
+        // 3. Preventive health check
         bool isServerHealthy = await AnsiConsole.Status()
             .Spinner(Spinner.Known.Dots)
-            .StartAsync("Verifica disponibilità del server...", async _ =>
+            .StartAsync("Checking server availability...", async _ =>
             {
                 return await pifeonServer.IsHealthyAsync(cts.Token);
             });
 
         if (!isServerHealthy)
         {
-            AnsiConsole.MarkupLine("[bold red]Errore:[/] Impossibile raggiungere Pifeon.Server su [yellow]{0}[/]", pifeonServer.ServerUrl);
+            AnsiConsole.MarkupLine("[bold red]Error:[/] Unable to reach Pifeon.Server at [yellow]{0}[/]", pifeonServer.ServerUrl);
             return 1;
         }
 
-        // 4. Creazione della sessione e generazione del codice
+        // 4. Create session and generate code
         ISender sender;
         try
         {
             sender = await AnsiConsole.Status()
                 .Spinner(Spinner.Known.Dots)
-                .StartAsync("Connessione a Pifeon.Server e generazione codice...", async _ =>
+                .StartAsync("Connecting to Pifeon.Server and generating code...", async _ =>
                 {
                     return await pifeonServer.CreateSessionAsync(cts.Token);
                 });
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine("[bold red]Errore durante la connessione:[/] {0}", ex.Message);
+            AnsiConsole.MarkupLine("[bold red]Error during connection:[/] {0}", ex.Message);
             return 1;
         }
 
         await using (sender)
         {
-            // 5. Visualizzazione del Codice a 6 cifre
+            // 5. Display the 6-digit code
             AnsiConsole.WriteLine();
             AnsiConsole.Write(new Panel(new Markup($"[bold green size=20]{sender.Code}[/]"))
             {
-                Header = new PanelHeader(" Codice di Pairing "),
+                Header = new PanelHeader(" Pairing Code "),
                 Padding = new Padding(3, 1, 3, 1),
                 Border = BoxBorder.Rounded
             });
-            AnsiConsole.MarkupLine("[dim]In attesa che il destinatario inserisca il codice... (Premi CTRL+C per annullare)[/]\n");
+            AnsiConsole.MarkupLine("[dim]Waiting for recipient to enter the code... (Press CTRL+C to cancel)[/]\n");
 
             // 6. Streaming dei dati con avanzamento in tempo reale
             try
@@ -102,30 +102,30 @@ public sealed class SendCommand : AsyncCommand<SendSettings>
                     )
                     .StartAsync(async progressContext =>
                     {
-                        ProgressTask transferTask = progressContext.AddTask("[green]Invio dati P2P[/]", maxValue: totalBytes);
+                        ProgressTask transferTask = progressContext.AddTask("[green]Sending P2P data[/]", maxValue: totalBytes);
 
                         sender.OnProgressChanged += (bytesSent, total, currentFile) =>
                         {
                             transferTask.Value = bytesSent;
                             if (!string.IsNullOrEmpty(currentFile))
                             {
-                                transferTask.Description = $"[green]Invio:[/] {Path.GetFileName(currentFile)}";
+                                transferTask.Description = $"[green]Sending:[/] {Path.GetFileName(currentFile)}";
                             }
                         };
 
                         await sender.SendAsync(targetPath, cts.Token);
                     });
 
-                AnsiConsole.MarkupLine("\n[bold green]✔ Trasferimento completato con successo![/]");
+                AnsiConsole.MarkupLine("\n[bold green]✔ Transfer completed successfully![/]");
             }
             catch (OperationCanceledException)
             {
-                AnsiConsole.MarkupLine("\n[yellow]Trasferimento interrotto dall'utente.[/]");
+                AnsiConsole.MarkupLine("\n[yellow]Transfer canceled by user.[/]");
                 return 0;
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine("\n[bold red]Errore durante il trasferimento P2P:[/] {0}", ex.Message);
+                AnsiConsole.MarkupLine("\n[bold red]Error during P2P transfer:[/] {0}", ex.Message);
                 return 1;
             }
         }

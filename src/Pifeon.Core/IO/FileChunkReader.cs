@@ -19,7 +19,7 @@ public sealed class FileChunkReader : IDisposable
     }
 
     /// <summary>
-    /// Legge il prossimo chunk dal file. Restituisce 0 byte quando il file è terminato.
+    /// Reads the next chunk from the file. Returns 0 bytes when the file is finished.
     /// </summary>
     public async Task<int> ReadNextChunkAsync(Memory<byte> buffer, CancellationToken ct = default)
     {

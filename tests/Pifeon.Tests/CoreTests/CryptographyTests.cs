@@ -73,7 +73,7 @@ public class CryptographyTests
     public void Encrypt_ShouldThrowArgumentException_WhenKeyLengthIsNot32Bytes()
     {
         // Arrange
-        byte[] invalidKey = new byte[16]; // 128-bit anziché 256-bit
+        byte[] invalidKey = new byte[16]; // 128-bit instead of 256-bit
         byte[] plainText = "Test Payload"u8.ToArray();
 
         // Act & Assert
@@ -88,7 +88,7 @@ public class CryptographyTests
     public void Decrypt_ShouldThrowArgumentException_WhenKeyLengthIsNot32Bytes()
     {
         // Arrange
-        byte[] invalidKey = new byte[24]; // 192-bit anziché 256-bit
+        byte[] invalidKey = new byte[24]; // 192-bit instead of 256-bit
         byte[] dummyEncryptedPackage = new byte[30]; // Pacchetto valido per lunghezza
 
         // Act & Assert

@@ -164,7 +164,7 @@ public class PairingManagerTests
 
         // Assert
         Assert.True(firstJoin);
-        Assert.False(secondJoin, "Un secondo tentativo di join su una sessione già accoppiata deve fallire.");
+        Assert.False(secondJoin, "A second join attempt on an already paired session must fail.");
     }
 
     #endregion

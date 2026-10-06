@@ -237,7 +237,7 @@ public sealed class WebSocketSignalingServiceTests : IDisposable
         // Act & Assert (L'esecuzione non deve lanciare eccezioni)
         await _sut.ConnectAsync(TestContext.Current.CancellationToken);
         await Task.Delay(100, TestContext.Current.CancellationToken);
-        Assert.True(true); // Se arriviamo qui senza eccezioni, il test è passato
+        Assert.True(true); // If we reach here without exceptions, the test passed
     }
 
     [Fact]

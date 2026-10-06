@@ -135,7 +135,7 @@ public sealed class WebSocketTransportChannel : ITransportChannel
     {
         if (!IsConnected)
         {
-            throw new InvalidOperationException($"Il canale WebSocket non è connesso. Stato attuale: {_webSocket.State}");
+            throw new InvalidOperationException($"The WebSocket channel is not connected. Current state: {_webSocket.State}");
         }
     }
 }

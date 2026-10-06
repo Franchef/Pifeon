@@ -28,7 +28,7 @@ public sealed class WebSocketSignalingService : ISignalingService
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        // Se l'ascolto non è ancora partito, avviamo il loop di ricezione in background
+        // If listener is not yet started, start the receive loop in the background
         if (_listenTask == null)
         {
             _listenCts = new CancellationTokenSource();

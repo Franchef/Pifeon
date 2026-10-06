@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Pifeon icon">
+  <defs>
+	<linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+	  <stop offset="0%" stop-color="#38bdf8" />
+	  <stop offset="100%" stop-color="#1d4ed8" />
+	</linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0f172a" />
+  <circle cx="256" cy="192" r="118" fill="url(#g)" opacity="0.22" />
+  <path d="M164 140h132c48 0 88 39 88 88s-40 88-88 88h-70l-58 56v-56h-4c-48 0-88-39-88-88s40-88 88-88Zm18 56v64h105c17 0 31-14 31-32s-14-32-31-32H182Z" fill="#e0f2fe"/>
+  <path d="M225 188h92c15 0 28 12 28 28s-13 28-28 28h-64l-28 27v-27h-11c-15 0-28-12-28-28s13-28 28-28Z" fill="#60a5fa"/>
+</svg>

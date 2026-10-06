@@ -18,6 +18,14 @@ public class ServerFixture : WebApplicationFactory<Program>
     }
 }
 
+public sealed class DirectTransferServerFixture : ServerFixture
+{
+    public DirectTransferServerFixture()
+    {
+        UseKestrel(0);
+    }
+}
+
 // Fixture for testing rate limiter behavior - uses production rate limits
 public class ProductionRateLimitServerFixture : WebApplicationFactory<Program>
 {

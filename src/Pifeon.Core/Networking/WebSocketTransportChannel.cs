@@ -63,16 +63,24 @@ public sealed class WebSocketTransportChannel : ITransportChannel
     {
         EnsureConnected();
 
-        ValueWebSocketReceiveResult result = await _webSocket.ReceiveAsync(buffer, ct);
-
-        // Se il server richiede la chiusura della connessione
-        if (result.MessageType == WebSocketMessageType.Close)
+        int total = 0;
+        while (true)
         {
-            await CloseAsync(ct);
-            return 0;
+            ValueWebSocketReceiveResult result = await _webSocket.ReceiveAsync(buffer[total..], ct);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                return 0;
+            }
+            total += result.Count;
+            if (result.EndOfMessage)
+            {
+                return total;
+            }
+            if (total == buffer.Length)
+            {
+                throw new InvalidDataException("WebSocket message exceeds the receive limit.");
+            }
         }
-
-        return result.Count;
     }
 
     /// <summary>
@@ -82,10 +90,18 @@ public sealed class WebSocketTransportChannel : ITransportChannel
     {
         if (_webSocket.State is WebSocketState.Open or WebSocketState.CloseReceived)
         {
-            await _webSocket.CloseAsync(
-                WebSocketCloseStatus.NormalClosure,
-                "Chiusura del canale richiesta",
-                ct);
+            try
+            {
+                await _webSocket.CloseAsync(
+                    WebSocketCloseStatus.NormalClosure,
+                    "Chiusura del canale richiesta",
+                    ct);
+            }
+            catch (Exception ex) when (ex is IOException or WebSocketException)
+            {
+                System.Diagnostics.Trace.TraceInformation($"Signaling peer disconnected during close: {ex.Message}");
+                _webSocket.Abort();
+            }
         }
     }
 

@@ -23,7 +23,7 @@ public sealed class PifeonServer : IPifeonServer
         _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
     }
 
-    public async Task<ISession> CreateSessionHandleAsync(CancellationToken ct = default)
+    public async Task<ISenderSession> CreateSessionHandleAsync(CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -31,9 +31,17 @@ public sealed class PifeonServer : IPifeonServer
         {
             WebSocketTransportChannel transportChannel = await WebSocketTransportChannel.ConnectAsync(BuildSessionUri("/ws/session/create").ToString(), ct);
             var serverChannel = new ServerMessageChannel(transportChannel);
-            var peerChannel = new PeerMessageChannel(transportChannel);
+            var peerChannel = new DirectPeerMessageChannel();
 
-            return await PifeonSession.CreateSenderAsync(serverChannel, peerChannel, ct);
+            try
+            {
+                return await PifeonSession.CreateSenderAsync(serverChannel, peerChannel, ct);
+            }
+            catch
+            {
+                await transportChannel.DisposeAsync();
+                throw;
+            }
         }
         catch (WebSocketException ex) when (IsStatusInMessage(ex, "429"))
         {
@@ -41,7 +49,7 @@ public sealed class PifeonServer : IPifeonServer
         }
     }
 
-    public async Task<ISession> JoinSessionHandleAsync(string code, CancellationToken ct = default)
+    public async Task<IReceiverSession> JoinSessionHandleAsync(string code, CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -55,9 +63,17 @@ public sealed class PifeonServer : IPifeonServer
             string normalizedCode = code.Trim();
             WebSocketTransportChannel transportChannel = await WebSocketTransportChannel.ConnectAsync(BuildSessionUri($"/ws/session/join/{normalizedCode}").ToString(), ct);
             var serverChannel = new ServerMessageChannel(transportChannel);
-            var peerChannel = new PeerMessageChannel(transportChannel);
+            var peerChannel = new DirectPeerMessageChannel();
 
-            return await PifeonSession.CreateReceiverAsync(normalizedCode, serverChannel, peerChannel, ct);
+            try
+            {
+                return await PifeonSession.CreateReceiverAsync(normalizedCode, serverChannel, peerChannel, ct);
+            }
+            catch
+            {
+                await transportChannel.DisposeAsync();
+                throw;
+            }
         }
         catch (WebSocketException ex) when (IsStatusInMessage(ex, "404"))
         {
@@ -67,19 +83,31 @@ public sealed class PifeonServer : IPifeonServer
 
     public async Task<ISender> CreateSessionAsync(CancellationToken ct = default)
     {
-        ISession session = await CreateSessionHandleAsync(ct);
+        ISenderSession session = await CreateSessionHandleAsync(ct);
         return await session.GetSenderAsync(ct);
     }
 
     public async Task<IReceiver> JoinSessionAsync(string code, CancellationToken ct = default)
     {
-        ISession session = await JoinSessionHandleAsync(code, ct);
-        return await session.GetReceiverAsync(ct);
+        IReceiverSession session = await JoinSessionHandleAsync(code, ct);
+        try
+        {
+            return await session.GetReceiverAsync(ct);
+        }
+        catch
+        {
+            await session.DisposeAsync();
+            throw;
+        }
     }
 
     private Uri BuildSessionUri(string sessionPath)
     {
         Uri baseUri = new(ServerUrl, UriKind.Absolute);
+        if (baseUri.Scheme != "wss" && !(baseUri.Scheme == "ws" && baseUri.IsLoopback))
+        {
+            throw new InvalidOperationException("Trusted peer key exchange requires WSS. WS is allowed only for loopback development.");
+        }
 
         return new UriBuilder(baseUri)
         {

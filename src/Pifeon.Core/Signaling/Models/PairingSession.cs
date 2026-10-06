@@ -13,6 +13,9 @@ public sealed record PairingSession<TConnection>(
     CancellationTokenSource TimeoutCts
 ) : IDisposable
 {
+    public SemaphoreSlim SenderSendLock { get; } = new(1, 1);
+    public SemaphoreSlim ReceiverSendLock { get; } = new(1, 1);
+
     public void Dispose()
     {
         if (!TimeoutCts.IsCancellationRequested)

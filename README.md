@@ -15,8 +15,8 @@ Just like the homing pigeons of the past, Pifeon delivers your data straight to 
 ## 🚀 Key Features
 
 - **Zero Cloud & Zero Accounts:** No registration, no email required, and no centralized database. Files travel strictly between nodes.
-- **Privacy-First & Copyleft:** Protected by the GNU GPLv3 license. End-to-End encrypted (AES-GCM / Seclink)—not even the signaling server can peek into your data.
-- **Smart Hole Punching:** Seamlessly bypasses firewalls and home NATs (via STUN/ICE protocols) to establish direct connections anywhere.
+- **Privacy-First & Copyleft:** Protected by the GNU GPLv3 license. Direct peer traffic uses ECDH P-256 key agreement and AES-256-GCM encryption. The signaling server is trusted to introduce the correct public keys.
+- **Direct TCP:** Transfers work over LAN/reachable IPv4 endpoints. Inbound TCP must be allowed on the sender; automatic NAT traversal and relay fallback are not implemented.
 - **Real-Time Progress Tracking:** Live transfer statistics showing bytes exchanged, transfer speed, and current file being transferred across all platforms (CLI/GUI).
 - **Lightweight & High-Performance:** Written in modern C# and optimized for low RAM consumption, even when streaming multi-gigabyte folders.
 
@@ -29,7 +29,7 @@ The project adopts a highly decoupled, modular architecture (Open/Closed Princip
 ```text
 src/
 ├── Pifeon.Core/          # 🧠 Central logic library (.NET Class Library)
-│   ├── Networking/       # Sockets, WebRTC, Hole Punching (STUN) management
+│   ├── Networking/       # Direct TCP, binary framing, encrypted peer channels
 │   ├── Cryptography/     # Symmetric/Asymmetric end-to-end encryption
 │   ├── IO/               # Folder scanning, SHA256 hashing, and Stream handling
 │   └── Signaling/        # Abstractions for client pairing (ISignalingService)
@@ -48,13 +48,27 @@ src/
 
 ## ⚙️ How It Works
 
+See [Peer transfer flows](docs/FLOWS.md) for Mermaid diagrams of pairing,
+secure connection setup, binary file transfer, and failure handling.
+
 ### Scenario A: One-Time Quick Transfer (WeTransfer Alternative)
 1. **The Sender** drops a file/folder into Pifeon.
 2. The client contacts `Pifeon.Server` and receives a temporary **6-digit code** (valid for 5 minutes).
 3. **The Receiver** enters the 6-digit code into their Pifeon instance.
-4. The server exchanges public IPs (NAT Traversal) and introduces the two PCs.
-5. A direct P2P channel is established, the code is wiped from the server, and the file is streamed in encrypted chunks.
+4. The peers exchange local IPv4 addresses, the sender's listening port, and ephemeral ECDH public keys through the server.
+5. The receiver connects directly to the sender. Both peers confirm possession of their derived keys using encrypted handshake messages, then close signaling; the server removes the session.
 6. **Both parties see live progress**, including cumulative bytes transferred, transfer speed, and the current file being transmitted.
+
+#### Transfer protocol and security
+
+- Pairing and endpoint/key announcements use JSON over WebSocket signaling.
+- After key confirmation, the server is no longer involved in the transfer. The five-minute pairing timeout does not limit an established peer transfer.
+- The manifest and peer control messages use JSON. Files are sent sequentially in chunks of up to 64 KiB; each chunk uses a binary type/sequence header followed by the original bytes, without JSON/base64 encoding.
+- TCP packets have a four-byte big-endian length prefix and a bounded maximum size. Every peer packet (including manifest, acknowledgments, and handshake) is encrypted using the existing AES-GCM helper.
+- HKDF derives separate sender/receiver keys from the ECDH secret and session code. Encrypted packet counters reject replay/out-of-order packets; GCM rejects tampering.
+- Production signaling must use `wss://` with a trusted server certificate. The standard client permits `ws://` only for loopback development. Custom injected channels must provide their own trusted signaling transport and security.
+- A six-digit code is a temporary pairing code, not an encryption key or proof of a human identity. A malicious/compromised signaling server can substitute keys; protection against that requires independent fingerprint verification.
+- Connection failures are reported explicitly. UDP STUN discovery is not used to advertise a TCP endpoint, and there is no silent server-relay fallback.
 
 ### Scenario B: Continuous Synchronization (Future-Proof Evolution)
 Leveraging Dependency Injection, the `ISignalingService` can be extended with an authenticated module:

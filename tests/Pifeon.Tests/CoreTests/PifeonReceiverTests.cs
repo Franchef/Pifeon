@@ -1,465 +1,220 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
 using System.Text.Json;
-using System.Timers;
 using Moq;
 using Pifeon.Core.Abstractions;
 using Pifeon.Core.Networking;
 using Pifeon.Core.Services;
-using Pifeon.Core.Signaling;
 using Pifeon.Core.Signaling.Messages;
 
 namespace Pifeon.Tests.CoreTests;
 
-public sealed class PifeonReceiverTests : IDisposable
+public sealed class PifeonReceiverTests : IAsyncLifetime
 {
-    private readonly Mock<ISignalingService> _signalingServiceMock;
-    private readonly Mock<ITransportChannel> _dataChannelMock;
-    private readonly Mock<IPeerMessageChannel> _peerChannelMock;
-    private readonly PifeonReceiver _sut; // System Under Test
+    private readonly Mock<IPeerMessageChannel> _peer = new();
+    private readonly Queue<PeerNetworkMessage> _incoming = new();
+    private readonly List<PeerNetworkMessage> _sent = [];
+    private readonly PifeonReceiver _receiver;
+    private readonly string _destination = Path.Combine(Path.GetTempPath(), $"pifeon_receiver_{Guid.NewGuid():N}", "received");
 
     public PifeonReceiverTests()
     {
-        _signalingServiceMock = new Mock<ISignalingService>();
-        _dataChannelMock = new Mock<ITransportChannel>();
-        _peerChannelMock = new Mock<IPeerMessageChannel>();
-
-        _sut = new PifeonReceiver(_peerChannelMock.Object);
-    }
-
-    public void Dispose()
-    {
-        _sut.DisposeAsync().AsTask().GetAwaiter().GetResult();
-    }
-
-    #region 1. Validation & Constructor Tests
-
-    [Fact]
-    public void Constructor_ShouldThrowArgumentNullException_WhenPeerChannelIsNull()
-    {
-        // Act & Assert
-        ArgumentNullException ex = Assert.Throws<ArgumentNullException>(() =>
-            new PifeonReceiver(null!));
-
-        Assert.Equal("peerChannel", ex.ParamName);
-    }
-
-    #endregion
-
-    #region 2. Method Execution Tests
-
-    [Fact]
-    public async Task ConnectAndGetManifestAsync_ShouldReturnManifest()
-    {
-        // Arrange
-        string sessionCode = "123456";
-        using var cts = new CancellationTokenSource();
-
-        // Setup the mock to return a manifest message
-        TransferManifest expectedManifest = new TransferManifest(1, 100, 
-            new List<TransferItemInfo> { new TransferItemInfo("test.txt", 100) });
-        string manifestJson = JsonSerializer.Serialize(expectedManifest, SignalingJsonContext.Default.TransferManifest);
-        byte[] manifestPayload = System.Text.Encoding.UTF8.GetBytes(manifestJson);
-
-        PeerNetworkMessage manifestMessage = new PeerNetworkMessage(
-            PeerNetworkMessageType.Manifest,
-            0,
-            manifestPayload
-        );
-
-        _peerChannelMock
-            .Setup(p => p.ReceiveMessageAsync(cts.Token))
-            .ReturnsAsync(manifestMessage)
-            .Verifiable();
-
-        // Act
-        TransferManifest manifest = await _sut.ConnectAndGetManifestAsync(sessionCode, cts.Token);
-
-        // Assert
-        Assert.NotNull(manifest);
-        Assert.Equal(expectedManifest.TotalFiles, manifest.TotalFiles);
-        Assert.Equal(expectedManifest.TotalSizeBytes, manifest.TotalSizeBytes);
-        _peerChannelMock.Verify(p => p.ReceiveMessageAsync(cts.Token), Times.Once);
-    }
-
-    [Fact]
-    public async Task ReceiveToDirectoryAsync_ShouldCompleteSuccessfully()
-    {
-        // Arrange
-        string destinationDir = @"C:\Downloads\Pifeon";
-        using var cts = new CancellationTokenSource();
-
-        // Must call ConnectAndGetManifestAsync first
-        TransferManifest manifest = new TransferManifest(0, 0, []);
-        string manifestJson = JsonSerializer.Serialize(manifest, SignalingJsonContext.Default.TransferManifest);
-        byte[] manifestPayload = System.Text.Encoding.UTF8.GetBytes(manifestJson);
-
-        PeerNetworkMessage manifestMessage = new PeerNetworkMessage(
-            PeerNetworkMessageType.Manifest,
-            0,
-            manifestPayload
-        );
-
-        _peerChannelMock
-            .Setup(p => p.ReceiveMessageAsync(cts.Token))
-            .ReturnsAsync(manifestMessage);
-
-        await _sut.ConnectAndGetManifestAsync("123456", cts.Token);
-
-        // Act & Assert (verifica che non vengano sollevate eccezioni)
-        await _sut.ReceiveToDirectoryAsync(destinationDir, cts.Token);
-        Assert.True(true); // If we reach here, the method completed successfully
-    }
-
-    #endregion
-
-    #region 3. Error Scenarios & Edge Cases
-
-    [Fact]
-    public async Task ConnectAndGetManifestAsync_ShouldThrowInvalidOperationException_WhenReceiverSendsWrongMessageType()
-    {
-        // Arrange
-        string sessionCode = "123456";
-        using var cts = new CancellationTokenSource();
-
-        // Send wrong message type instead of Manifest
-        PeerNetworkMessage wrongMessage = new PeerNetworkMessage(
-            PeerNetworkMessageType.ChunkData,
-            0,
-            System.Text.Encoding.UTF8.GetBytes("wrong")
-        );
-
-        _peerChannelMock
-            .Setup(p => p.ReceiveMessageAsync(cts.Token))
-            .ReturnsAsync(wrongMessage);
-
-        // Act & Assert
-        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _sut.ConnectAndGetManifestAsync(sessionCode, cts.Token));
-        Assert.Contains("Expected Manifest", ex.Message);
-    }
-
-    [Fact]
-    public async Task ConnectAndGetManifestAsync_ShouldThrowInvalidOperationException_WhenManifestIsCorrupted()
-    {
-        // Arrange
-        string sessionCode = "123456";
-        using var cts = new CancellationTokenSource();
-
-        // Manifest with corrupted/invalid JSON
-        PeerNetworkMessage corruptedMessage = new PeerNetworkMessage(
-            PeerNetworkMessageType.Manifest,
-            0,
-            System.Text.Encoding.UTF8.GetBytes("{ invalid json }")
-        );
-
-        _peerChannelMock
-            .Setup(p => p.ReceiveMessageAsync(cts.Token))
-            .ReturnsAsync(corruptedMessage);
-
-        // Act & Assert
-        JsonException ex = await Assert.ThrowsAsync<JsonException>(() => _sut.ConnectAndGetManifestAsync(sessionCode, cts.Token));
-    }
-
-    [Fact]
-    public async Task ReceiveToDirectoryAsync_ShouldThrowInvalidOperationException_WhenManifestNotReceived()
-    {
-        // Arrange
-        string destinationDir = @"C:\temp";
-        using var cts = new CancellationTokenSource();
-
-        // Act & Assert: should throw because ConnectAndGetManifestAsync was not called
-        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _sut.ReceiveToDirectoryAsync(destinationDir, cts.Token));
-        Assert.Contains("ConnectAndGetManifestAsync", ex.Message);
-    }
-
-    [Fact]
-    public async Task ReceiveToDirectoryAsync_ShouldThrowInvalidOperationException_WhenChunkHasWrongMessageType()
-    {
-        // Arrange
-        string destinationDir = @"C:\temp";
-        using var cts = new CancellationTokenSource();
-
-        // Setup manifest
-        TransferManifest manifest = new TransferManifest(1, 10, 
-            new List<TransferItemInfo> { new TransferItemInfo("test.txt", 10) });
-        string manifestJson = JsonSerializer.Serialize(manifest, SignalingJsonContext.Default.TransferManifest);
-        byte[] manifestPayload = System.Text.Encoding.UTF8.GetBytes(manifestJson);
-
-        PeerNetworkMessage manifestMessage = new PeerNetworkMessage(
-            PeerNetworkMessageType.Manifest,
-            0,
-            manifestPayload
-        );
-
-        // First call returns manifest, subsequent calls return wrong message type
-        int callCount = 0;
-        _peerChannelMock
-            .Setup(p => p.ReceiveMessageAsync(cts.Token))
-            .Returns(() =>
+        _receiver = new PifeonReceiver(_peer.Object);
+        _peer.Setup(channel => channel.ReceiveMessageAsync(It.IsAny<CancellationToken>()))
+            .Returns<CancellationToken>(ct =>
             {
-                callCount++;
-                if (callCount == 1)
-                {
-                    return new ValueTask<PeerNetworkMessage>(manifestMessage);
-                }
-                // Return wrong type for chunk
-                return new ValueTask<PeerNetworkMessage>(new PeerNetworkMessage(
-                    PeerNetworkMessageType.Manifest,  // Wrong type
-                    1,
-                    System.Text.Encoding.UTF8.GetBytes("test")
-                ));
+                ct.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(_incoming.Dequeue());
             });
-
-        _peerChannelMock
-            .Setup(p => p.SendMessageAsync(It.IsAny<PeerNetworkMessage>(), cts.Token))
+        _peer.Setup(channel => channel.SendMessageAsync(It.IsAny<PeerNetworkMessage>(), It.IsAny<CancellationToken>()))
+            .Callback<PeerNetworkMessage, CancellationToken>((message, _) => _sent.Add(message))
             .Returns(ValueTask.CompletedTask);
+        _peer.Setup(channel => channel.DisposeAsync()).Returns(ValueTask.CompletedTask);
+    }
 
-        await _sut.ConnectAndGetManifestAsync("code", cts.Token);
+    public ValueTask InitializeAsync() => ValueTask.CompletedTask;
 
-        // Act & Assert
-        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _sut.ReceiveToDirectoryAsync(destinationDir, cts.Token));
-        Assert.Contains("Expected ChunkData", ex.Message);
+    public async ValueTask DisposeAsync()
+    {
+        await _receiver.DisposeAsync();
+        string root = Path.GetDirectoryName(_destination)!;
+        if (Directory.Exists(root))
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private void EnqueueManifest(TransferManifest manifest)
+    {
+        _incoming.Enqueue(new PeerNetworkMessage(PeerNetworkMessageType.Manifest, 0,
+            JsonSerializer.SerializeToUtf8Bytes(manifest, SignalingJsonContext.Default.TransferManifest)));
+    }
+
+    private async Task SetManifestAsync(params TransferItemInfo[] files)
+    {
+        EnqueueManifest(new TransferManifest(files.Length, files.Sum(file => file.FileSize), files));
+        await _receiver.ConnectAndGetManifestAsync("123456", TestContext.Current.CancellationToken);
     }
 
     [Fact]
-    public async Task ReceiveToDirectoryAsync_ShouldReportProgressChanges()
+    public void Constructor_ShouldRejectNullPeer()
     {
-        // Arrange
-        string destinationDir = @"C:\temp";
-        string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PifeonReceiverTest_" + Guid.NewGuid());
-        System.IO.Directory.CreateDirectory(tempDir);
-
-        try
-        {
-            using var cts = new CancellationTokenSource();
-
-            // Setup manifest with one file
-            TransferManifest manifest = new TransferManifest(1, 10, 
-                new List<TransferItemInfo> { new TransferItemInfo("test.txt", 10) });
-            string manifestJson = JsonSerializer.Serialize(manifest, SignalingJsonContext.Default.TransferManifest);
-            byte[] manifestPayload = System.Text.Encoding.UTF8.GetBytes(manifestJson);
-
-            PeerNetworkMessage manifestMessage = new PeerNetworkMessage(
-                PeerNetworkMessageType.Manifest,
-                0,
-                manifestPayload
-            );
-
-            // Create chunk message
-            PeerNetworkMessage chunkMessage = new PeerNetworkMessage(
-                PeerNetworkMessageType.ChunkData,
-                1,
-                System.Text.Encoding.UTF8.GetBytes("0123456789")
-            );
-
-            int callCount = 0;
-            _peerChannelMock
-                .Setup(p => p.ReceiveMessageAsync(cts.Token))
-                .Returns(() =>
-                {
-                    callCount++;
-                    return callCount == 1 
-                        ? new ValueTask<PeerNetworkMessage>(manifestMessage) 
-                        : new ValueTask<PeerNetworkMessage>(chunkMessage);
-                });
-
-            _peerChannelMock
-                .Setup(p => p.SendMessageAsync(It.IsAny<PeerNetworkMessage>(), cts.Token))
-                .Returns(ValueTask.CompletedTask);
-
-            var progressEvents = new List<(long current, long total, string fileName)>();
-            _sut.OnProgressChanged += (current, total, fileName) =>
-            {
-                progressEvents.Add((current, total, fileName));
-            };
-
-            await _sut.ConnectAndGetManifestAsync("code", cts.Token);
-
-            // Act
-            await _sut.ReceiveToDirectoryAsync(tempDir, cts.Token);
-
-            // Assert: Progress events should have been raised
-            Assert.NotEmpty(progressEvents);
-            Assert.All(progressEvents, e => Assert.Equal(10, e.total)); // Total bytes
-            Assert.Contains(progressEvents, e => e.current == 10); // Final progress
-        }
-        finally
-        {
-            if (System.IO.Directory.Exists(tempDir))
-            {
-                System.IO.Directory.Delete(tempDir, recursive: true);
-            }
-        }
+        ArgumentNullException error = Assert.Throws<ArgumentNullException>(() => new PifeonReceiver(null!));
+        Assert.Equal("peerChannel", error.ParamName);
     }
 
     [Fact]
-    public async Task ReceiveToDirectoryAsync_ShouldCreateNestedDirectories()
+    public async Task GetManifest_ShouldReturnFileMetadata()
     {
-        // Arrange
-        string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PifeonReceiverTest_" + Guid.NewGuid());
-        string destinationDir = System.IO.Path.Combine(tempDir, "nested", "path");
+        var expected = new TransferManifest(1, 100, [new TransferItemInfo("test.txt", 100)]);
+        EnqueueManifest(expected);
+        TransferManifest actual = await _receiver.ConnectAndGetManifestAsync("123456", TestContext.Current.CancellationToken);
 
-        try
-        {
-            using var cts = new CancellationTokenSource();
-
-            // Setup manifest with nested path
-            TransferManifest manifest = new TransferManifest(1, 5, 
-                new List<TransferItemInfo> { new TransferItemInfo("nested/subdir/file.txt", 5) });
-            string manifestJson = JsonSerializer.Serialize(manifest, SignalingJsonContext.Default.TransferManifest);
-            byte[] manifestPayload = System.Text.Encoding.UTF8.GetBytes(manifestJson);
-
-            PeerNetworkMessage manifestMessage = new PeerNetworkMessage(
-                PeerNetworkMessageType.Manifest,
-                0,
-                manifestPayload
-            );
-
-            PeerNetworkMessage chunkMessage = new PeerNetworkMessage(
-                PeerNetworkMessageType.ChunkData,
-                1,
-                System.Text.Encoding.UTF8.GetBytes("hello")
-            );
-
-            int callCount = 0;
-            _peerChannelMock
-                .Setup(p => p.ReceiveMessageAsync(cts.Token))
-                .Returns(() =>
-                {
-                    callCount++;
-                    return callCount == 1 
-                        ? new ValueTask<PeerNetworkMessage>(manifestMessage) 
-                        : new ValueTask<PeerNetworkMessage>(chunkMessage);
-                });
-
-            _peerChannelMock
-                .Setup(p => p.SendMessageAsync(It.IsAny<PeerNetworkMessage>(), cts.Token))
-                .Returns(ValueTask.CompletedTask);
-
-            await _sut.ConnectAndGetManifestAsync("code", cts.Token);
-
-            // Act
-            await _sut.ReceiveToDirectoryAsync(destinationDir, cts.Token);
-
-            // Assert: File should exist with correct content
-            string filePath = System.IO.Path.Combine(destinationDir, "nested", "subdir", "file.txt");
-            Assert.True(System.IO.File.Exists(filePath), $"File should exist at {filePath}");
-            byte[] content = await System.IO.File.ReadAllBytesAsync(filePath, cts.Token);
-            Assert.Equal("hello", System.Text.Encoding.UTF8.GetString(content));
-        }
-        finally
-        {
-            if (System.IO.Directory.Exists(tempDir))
-            {
-                System.IO.Directory.Delete(tempDir, recursive: true);
-            }
-        }
+        Assert.Equal(expected.TotalFiles, actual.TotalFiles);
+        Assert.Equal(expected.TotalSizeBytes, actual.TotalSizeBytes);
+        Assert.Equal(expected.Items, actual.Items);
+        _peer.Verify(channel => channel.ReceiveMessageAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task ReceiveToDirectoryAsync_ShouldSendChunkAcknowledgments()
+    public async Task EmptyManifest_ShouldCreateDirectoryWithoutReceivingChunks()
     {
-        // Arrange
-        string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PifeonReceiverTest_" + Guid.NewGuid());
-        System.IO.Directory.CreateDirectory(tempDir);
+        await SetManifestAsync();
+        await _receiver.ReceiveToDirectoryAsync(_destination, TestContext.Current.CancellationToken);
 
-        try
-        {
-            using var cts = new CancellationTokenSource();
-
-            // Setup manifest
-            TransferManifest manifest = new TransferManifest(1, 5, 
-                new List<TransferItemInfo> { new TransferItemInfo("test.txt", 5) });
-            string manifestJson = JsonSerializer.Serialize(manifest, SignalingJsonContext.Default.TransferManifest);
-            byte[] manifestPayload = System.Text.Encoding.UTF8.GetBytes(manifestJson);
-
-            PeerNetworkMessage manifestMessage = new PeerNetworkMessage(
-                PeerNetworkMessageType.Manifest,
-                0,
-                manifestPayload
-            );
-
-            PeerNetworkMessage chunkMessage = new PeerNetworkMessage(
-                PeerNetworkMessageType.ChunkData,
-                1,
-                System.Text.Encoding.UTF8.GetBytes("hello")
-            );
-
-            int callCount = 0;
-            _peerChannelMock
-                .Setup(p => p.ReceiveMessageAsync(cts.Token))
-                .Returns(() =>
-                {
-                    callCount++;
-                    return callCount == 1 
-                        ? new ValueTask<PeerNetworkMessage>(manifestMessage) 
-                        : new ValueTask<PeerNetworkMessage>(chunkMessage);
-                });
-
-            var sentAcks = new List<PeerNetworkMessage>();
-            _peerChannelMock
-                .Setup(p => p.SendMessageAsync(It.IsAny<PeerNetworkMessage>(), cts.Token))
-                .Callback((PeerNetworkMessage msg, CancellationToken _) =>
-                {
-                    if (msg.Type == PeerNetworkMessageType.ChunkAck)
-                    {
-                        sentAcks.Add(msg);
-                    }
-                })
-                .Returns(ValueTask.CompletedTask);
-
-            await _sut.ConnectAndGetManifestAsync("code", cts.Token);
-
-            // Act
-            await _sut.ReceiveToDirectoryAsync(tempDir, cts.Token);
-
-            // Assert: Should have sent ChunkAck
-            Assert.NotEmpty(sentAcks);
-            Assert.All(sentAcks, ack => Assert.Equal(PeerNetworkMessageType.ChunkAck, ack.Type));
-        }
-        finally
-        {
-            if (System.IO.Directory.Exists(tempDir))
-            {
-                System.IO.Directory.Delete(tempDir, recursive: true);
-            }
-        }
+        Assert.True(Directory.Exists(_destination));
+        Assert.Empty(Directory.GetFiles(_destination));
+        Assert.Empty(_sent);
+        _peer.Verify(channel => channel.ReceiveMessageAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    #endregion
-
-    #region 4. Lifecycle & Disposal Tests
-
-    [Fact]
-    public async Task DisposeAsync_ShouldDisposePeerChannel()
+    [Theory]
+    [InlineData(PeerNetworkMessageType.ChunkData)]
+    [InlineData(PeerNetworkMessageType.ChunkAck)]
+    public async Task GetManifest_ShouldRejectUnexpectedMessage(PeerNetworkMessageType type)
     {
-        // Arrange
-        _peerChannelMock
-            .Setup(p => p.DisposeAsync())
-            .Returns(ValueTask.CompletedTask)
-            .Verifiable();
-
-        // Act
-        await _sut.DisposeAsync();
-
-        // Assert
-        _peerChannelMock.Verify(p => p.DisposeAsync(), Times.Once);
+        _incoming.Enqueue(new PeerNetworkMessage(type, 1, "wrong"u8.ToArray()));
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _receiver.ConnectAndGetManifestAsync("123456", TestContext.Current.CancellationToken));
+        Assert.Contains("Expected Manifest", error.Message);
     }
 
     [Fact]
-    public async Task DisposeAsync_ShouldBeIdempotent_WhenCalledMultipleTimes()
+    public async Task GetManifest_ShouldReportPeerAbort()
     {
-        // Arrange
-        _peerChannelMock.Setup(p => p.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        // Act
-        await _sut.DisposeAsync();
-        await _sut.DisposeAsync(); // Second call
-
-        // Assert: DisposeAsync should be called only once
-        _peerChannelMock.Verify(p => p.DisposeAsync(), Times.Once);
+        _incoming.Enqueue(new PeerNetworkMessage(PeerNetworkMessageType.Abort, 0, "Transfer canceled"u8.ToArray()));
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _receiver.ConnectAndGetManifestAsync("123456", TestContext.Current.CancellationToken));
+        Assert.Equal("Transfer canceled", error.Message);
     }
 
-    #endregion
+    [Fact]
+    public async Task GetManifest_ShouldRejectCorruptedJson()
+    {
+        _incoming.Enqueue(new PeerNetworkMessage(PeerNetworkMessageType.Manifest, 0, "{ invalid json }"u8.ToArray()));
+        await Assert.ThrowsAsync<JsonException>(() => _receiver.ConnectAndGetManifestAsync("123456", TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData(2, 5, 5)]
+    [InlineData(1, 6, 5)]
+    [InlineData(1, -1, -1)]
+    public async Task GetManifest_ShouldRejectInconsistentCountsOrSizes(int count, long total, long fileSize)
+    {
+        EnqueueManifest(new TransferManifest(count, total, [new TransferItemInfo("test.bin", fileSize)]));
+        await Assert.ThrowsAsync<InvalidDataException>(() => _receiver.ConnectAndGetManifestAsync("123456", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Receive_ShouldRequireManifest()
+    {
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _receiver.ReceiveToDirectoryAsync(_destination, TestContext.Current.CancellationToken));
+        Assert.Contains("ConnectAndGetManifestAsync", error.Message);
+        Assert.False(Directory.Exists(_destination));
+    }
+
+    [Fact]
+    public async Task Receive_ShouldRejectUnexpectedChunkType()
+    {
+        await SetManifestAsync(new TransferItemInfo("test.bin", 5));
+        _incoming.Enqueue(new PeerNetworkMessage(PeerNetworkMessageType.Manifest, 1, "hello"u8.ToArray()));
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _receiver.ReceiveToDirectoryAsync(_destination, TestContext.Current.CancellationToken));
+        Assert.Contains("Expected ChunkData", error.Message);
+        Assert.Empty(_sent);
+    }
+
+    [Theory]
+    [InlineData(0, 5, 5)]
+    [InlineData(2, 5, 5)]
+    [InlineData(1, 0, 5)]
+    [InlineData(1, 6, 5)]
+    [InlineData(1, 65537, 65537)]
+    public async Task Receive_ShouldRejectInvalidSequenceOrSizeBeforeWriting(long sequence, int chunkSize, long fileSize)
+    {
+        await SetManifestAsync(new TransferItemInfo("test.bin", fileSize));
+        _incoming.Enqueue(new PeerNetworkMessage(PeerNetworkMessageType.ChunkData, sequence, new byte[chunkSize]));
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            _receiver.ReceiveToDirectoryAsync(_destination, TestContext.Current.CancellationToken));
+
+        Assert.Empty(_sent);
+        Assert.Equal(0, new FileInfo(Path.Combine(_destination, "test.bin")).Length);
+    }
+
+    [Theory]
+    [InlineData("../outside.bin")]
+    [InlineData("..\\outside.bin")]
+    [InlineData("file.bin:stream")]
+    public async Task Receive_ShouldRejectEscapingDestinationPaths(string relativePath)
+    {
+        await SetManifestAsync(new TransferItemInfo(relativePath, 0));
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            _receiver.ReceiveToDirectoryAsync(_destination, TestContext.Current.CancellationToken));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(_destination)!, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Receive_ShouldPreserveFilesAndAcknowledgeGlobalChunkSequence()
+    {
+        await SetManifestAsync(new TransferItemInfo("nested/first.bin", 5),
+            new TransferItemInfo("empty.bin", 0), new TransferItemInfo("second.bin", 3));
+        _incoming.Enqueue(new PeerNetworkMessage(PeerNetworkMessageType.ChunkData, 1, "he"u8.ToArray()));
+        _incoming.Enqueue(new PeerNetworkMessage(PeerNetworkMessageType.ChunkData, 2, "llo"u8.ToArray()));
+        _incoming.Enqueue(new PeerNetworkMessage(PeerNetworkMessageType.ChunkData, 3, new byte[] { 0, 128, 255 }));
+        var progress = new List<(long Current, long Total, string File)>();
+        _receiver.OnProgressChanged += (current, total, file) => progress.Add((current, total, file));
+
+        await _receiver.ReceiveToDirectoryAsync(_destination, TestContext.Current.CancellationToken);
+
+        Assert.Equal("hello"u8.ToArray(), await File.ReadAllBytesAsync(Path.Combine(_destination, "nested", "first.bin"), TestContext.Current.CancellationToken));
+        Assert.Equal(new byte[] { 0, 128, 255 }, await File.ReadAllBytesAsync(Path.Combine(_destination, "second.bin"), TestContext.Current.CancellationToken));
+        Assert.Equal(0, new FileInfo(Path.Combine(_destination, "empty.bin")).Length);
+        Assert.Equal(new long[] { 1, 2, 3 }, _sent.Select(message => message.SequenceNumber));
+        Assert.All(_sent, message =>
+        {
+            Assert.Equal(PeerNetworkMessageType.ChunkAck, message.Type);
+            Assert.True(message.Payload.IsEmpty);
+        });
+        Assert.Equal(new (long, long, string)[] { (2, 8, "nested/first.bin"), (5, 8, "nested/first.bin"), (8, 8, "second.bin") }, progress);
+        Assert.Empty(_incoming);
+    }
+
+    [Fact]
+    public async Task Dispose_ShouldDisposePeerOnce()
+    {
+        await _receiver.DisposeAsync();
+        await _receiver.DisposeAsync();
+        _peer.Verify(channel => channel.DisposeAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task Dispose_WithSession_ShouldDelegateResourceOwnershipToSession()
+    {
+        var session = new Mock<ISession>();
+        session.Setup(value => value.DisposeAsync()).Returns(ValueTask.CompletedTask);
+        await using var receiver = new PifeonReceiver(_peer.Object, session.Object);
+        await receiver.DisposeAsync();
+
+        session.Verify(value => value.DisposeAsync(), Times.Once);
+        _peer.Verify(channel => channel.DisposeAsync(), Times.Never);
+    }
 }

@@ -10,16 +10,18 @@ public class PifeonReceiver : IReceiver
 {
     private readonly IPeerMessageChannel _peerChannel;
     private readonly ISignalingService? _legacySignalingService;
+    private readonly ISession? _session;
     private TransferManifest? _manifest;
     private bool _disposed;
 
-    private const int ChunkSize = 64 * 1024; // 64 KB chunks
+    private const int ChunkSize = PeerMessageChannel.MaximumChunkSize;
 
     public event Action<long, long, string>? OnProgressChanged;
 
-    public PifeonReceiver(IPeerMessageChannel peerChannel)
+    public PifeonReceiver(IPeerMessageChannel peerChannel, ISession? session = null)
     {
         _peerChannel = peerChannel ?? throw new ArgumentNullException(nameof(peerChannel));
+        _session = session;
     }
 
     public PifeonReceiver(ISignalingService signalingService, ITransportChannel dataChannel)
@@ -35,20 +37,34 @@ public class PifeonReceiver : IReceiver
             await _legacySignalingService.JoinSessionAsync(code, ct);
         }
 
-        // Receive the manifest message from the sender via peer channel
-        PeerNetworkMessage manifestMessage = await _peerChannel.ReceiveMessageAsync(ct);
-
-        if (manifestMessage.Type != PeerNetworkMessageType.Manifest)
+        while (true)
         {
-            throw new InvalidOperationException($"Expected Manifest message type, received {manifestMessage.Type}");
+            PeerNetworkMessage manifestMessage = await _peerChannel.ReceiveMessageAsync(ct);
+
+            if (manifestMessage.Type != PeerNetworkMessageType.Manifest)
+            {
+                if (manifestMessage.Type == PeerNetworkMessageType.Abort)
+                {
+                    string errorMessage = System.Text.Encoding.UTF8.GetString(manifestMessage.Payload.Span);
+                    throw new InvalidOperationException(string.IsNullOrWhiteSpace(errorMessage)
+                        ? "Unexpected abort while waiting for transfer manifest."
+                        : errorMessage);
+                }
+
+                throw new InvalidOperationException($"Expected Manifest, received {manifestMessage.Type}.");
+            }
+
+            string manifestJson = System.Text.Encoding.UTF8.GetString(manifestMessage.Payload.Span);
+            TransferManifest? manifest = JsonSerializer.Deserialize(manifestJson, SignalingJsonContext.Default.TransferManifest) ?? throw new InvalidOperationException("Failed to deserialize transfer manifest");
+            if (manifest.Items is null || manifest.TotalFiles != manifest.Items.Count
+                || manifest.Items.Any(item => item.FileSize < 0)
+                || manifest.TotalSizeBytes != manifest.Items.Sum(item => item.FileSize))
+            {
+                throw new InvalidDataException("Invalid transfer manifest file counts or sizes.");
+            }
+            _manifest = manifest;
+            return manifest;
         }
-
-        // Deserialize manifest from payload (JSON encoded)
-        string manifestJson = System.Text.Encoding.UTF8.GetString(manifestMessage.Payload.Span);
-        TransferManifest? manifest = JsonSerializer.Deserialize(manifestJson, SignalingJsonContext.Default.TransferManifest) ?? throw new InvalidOperationException("Failed to deserialize transfer manifest");
-
-        _manifest = manifest;
-        return manifest;
     }
 
     public async Task ReceiveToDirectoryAsync(string destinationDirectory, CancellationToken ct = default)
@@ -58,17 +74,26 @@ public class PifeonReceiver : IReceiver
             throw new InvalidOperationException("Call ConnectAndGetManifestAsync first to receive the manifest");
         }
 
-        if (!Directory.Exists(destinationDirectory))
+        string destinationRoot = Path.GetFullPath(destinationDirectory);
+        if (!Directory.Exists(destinationRoot))
         {
-            Directory.CreateDirectory(destinationDirectory);
+            Directory.CreateDirectory(destinationRoot);
         }
 
         long totalBytesReceived = 0;
+        long expectedSequenceNumber = 1;
 
         // Receive each file from the manifest
         foreach (TransferItemInfo item in _manifest.Items)
         {
-            string filePath = Path.Combine(destinationDirectory, item.RelativePath);
+            string relativePath = item.RelativePath.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+            string filePath = Path.GetFullPath(Path.Combine(destinationRoot, relativePath));
+            StringComparison comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            if (Path.IsPathRooted(relativePath) || relativePath.Contains(':')
+                || !filePath.StartsWith(Path.TrimEndingDirectorySeparator(destinationRoot) + Path.DirectorySeparatorChar, comparison))
+            {
+                throw new InvalidDataException("Manifest file path must stay within the destination directory.");
+            }
             string? fileDirectory = Path.GetDirectoryName(filePath);
 
             if (fileDirectory is not null && !Directory.Exists(fileDirectory))
@@ -91,8 +116,14 @@ public class PifeonReceiver : IReceiver
                         throw new InvalidOperationException($"Expected ChunkData message type, received {chunkMessage.Type}");
                     }
 
+                    if (chunkMessage.SequenceNumber != expectedSequenceNumber || chunkMessage.Payload.Length == 0
+                        || chunkMessage.Payload.Length > bytesRemainingForFile || chunkMessage.Payload.Length > ChunkSize)
+                    {
+                        throw new InvalidDataException("Invalid file chunk sequence or size.");
+                    }
+
                     // Write chunk to file
-                    byte[] chunkData = chunkMessage.Payload.ToArray();
+                    ReadOnlyMemory<byte> chunkData = chunkMessage.Payload;
                     await fileStream.WriteAsync(chunkData, ct);
 
                     // Update progress
@@ -108,6 +139,7 @@ public class PifeonReceiver : IReceiver
                         ReadOnlyMemory<byte>.Empty
                     );
                     await _peerChannel.SendMessageAsync(ack, ct);
+                    expectedSequenceNumber++;
                 }
             }
         }
@@ -118,7 +150,14 @@ public class PifeonReceiver : IReceiver
         if (!_disposed)
         {
             _disposed = true;
-            await _peerChannel.DisposeAsync();
+            if (_session is not null)
+            {
+                await _session.DisposeAsync();
+            }
+            else
+            {
+                await _peerChannel.DisposeAsync();
+            }
 
             if (_legacySignalingService is not null)
             {

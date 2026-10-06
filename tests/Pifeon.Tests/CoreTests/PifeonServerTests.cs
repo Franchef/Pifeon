@@ -136,6 +136,15 @@ public sealed class PifeonServerTests : IDisposable
     #region 3. Network Connection Failures (CreateSession / JoinSession)
 
     [Fact]
+    public async Task CreateSessionHandleAsync_ShouldRejectUnencryptedRemoteSignaling()
+    {
+        await using var server = new PifeonServer("ws://example.com", null, _httpClient);
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            server.CreateSessionHandleAsync(TestContext.Current.CancellationToken));
+        Assert.Contains("requires WSS", error.Message);
+    }
+
+    [Fact]
     public async Task CreateSessionAsync_ShouldThrowException_WhenServerUnreachable()
     {
         // Act & Assert (In assenza di un endpoint WebSocket attivo, deve fallire la connessione)

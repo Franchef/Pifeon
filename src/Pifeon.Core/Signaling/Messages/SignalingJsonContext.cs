@@ -18,4 +18,5 @@ namespace Pifeon.Core.Signaling.Messages;
 [JsonSerializable(typeof(ErrorResponse))]
 [JsonSerializable(typeof(TransferManifest))]
 [JsonSerializable(typeof(TransferItemInfo))]
+[JsonSerializable(typeof(IpExchange))]
 public partial class SignalingJsonContext : JsonSerializerContext;

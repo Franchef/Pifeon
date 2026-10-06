@@ -17,7 +17,8 @@ public interface ITransportChannel : IAsyncDisposable
     ValueTask SendAsync(ReadOnlyMemory<byte> data, CancellationToken ct = default);
 
     /// <summary>
-    /// Ricezione di un blocco di dati dal canale.
+    /// Receives one complete message. Returns zero on graceful closure.
+    /// Messages exceeding the supplied buffer must fail rather than return partial data.
     /// </summary>
     ValueTask<int> ReceiveAsync(Memory<byte> buffer, CancellationToken ct = default);
 

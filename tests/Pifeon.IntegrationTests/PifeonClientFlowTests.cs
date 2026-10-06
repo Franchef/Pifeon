@@ -1,451 +1,254 @@
-using System.Text;
 using System.Net.WebSockets;
-using Microsoft.AspNetCore.TestHost;
+using System.Security.Cryptography;
+using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using Pifeon.Core;
 using Pifeon.Core.Abstractions;
-using Pifeon.Core.Networking;
-using Pifeon.Core.Services;
+using Pifeon.Core.Exceptions;
+using Pifeon.Core.Signaling.Messages;
 
 namespace Pifeon.IntegrationTests;
 
-/// <summary>
-/// Integration tests for P2P client flows through ISender/IReceiver interfaces.
-/// Tests exercise real WebSocket connections and file transfer scenarios using ServerFixture.
-/// These tests verify the actual client-facing APIs that P2P applications use.
-/// </summary>
-public class PifeonClientFlowTests : IClassFixture<ServerFixture>, IAsyncLifetime
+public sealed class PifeonClientFlowTests : IClassFixture<DirectTransferServerFixture>, IAsyncLifetime
 {
-    private readonly ServerFixture _factory;
-    private const int DefaultTimeoutMs = 15000;
-    private string? _tempDirectory;
+    private readonly DirectTransferServerFixture _factory;
+    private readonly string _tempDirectory = Path.Combine(Path.GetTempPath(), $"pifeon_flow_{Guid.NewGuid():N}");
 
-    public PifeonClientFlowTests(ServerFixture factory)
+    public PifeonClientFlowTests(DirectTransferServerFixture factory)
     {
         _factory = factory;
     }
 
-    public async ValueTask InitializeAsync()
+    public ValueTask InitializeAsync()
     {
-        // Create a temporary directory for test files
-        _tempDirectory = Path.Combine(Path.GetTempPath(), $"pifeon_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempDirectory);
+        return ValueTask.CompletedTask;
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        // Clean up temp directory
-        if (_tempDirectory != null && Directory.Exists(_tempDirectory))
-        {
-            try
-            {
-                Directory.Delete(_tempDirectory, recursive: true);
-            }
-            catch
-            {
-                // Best effort cleanup
-            }
-        }
+        Directory.Delete(_tempDirectory, recursive: true);
+        return ValueTask.CompletedTask;
     }
 
-    private static CancellationTokenSource CreateTimeoutCancellationTokenSource(int timeoutMs = DefaultTimeoutMs)
+    private static CancellationTokenSource CreateTimeout()
     {
         CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        cts.CancelAfter(timeoutMs);
+        cts.CancelAfter(TimeSpan.FromSeconds(30));
         return cts;
     }
 
-    /// <summary>
-    /// Tests sender creation and session code generation through ISender interface.
-    /// </summary>
+    private PifeonServer CreateClient()
+    {
+        using HttpClient httpClient = _factory.CreateClient();
+        var uri = new UriBuilder(httpClient.BaseAddress!) { Scheme = "ws" };
+        return new PifeonServer(uri.Uri.ToString());
+    }
+
+    private async Task AssertSignalingSessionRemovedAsync(string code, CancellationToken ct)
+    {
+        IPairingManager<WebSocket> manager = _factory.Services.GetRequiredService<IPairingManager<WebSocket>>();
+        while (manager.TryGetSession(code, out _))
+        {
+            await Task.Delay(10, ct);
+        }
+        Assert.False(manager.TryGetSession(code, out _));
+    }
+
+    private static async Task<TransferManifest> TransferAsync(
+        ISender sender, IReceiver receiver, string code, string source, string destination, CancellationToken ct)
+    {
+        async Task<TransferManifest> ReceiveAsync()
+        {
+            TransferManifest manifest = await receiver.ConnectAndGetManifestAsync(code, ct);
+            await receiver.ReceiveToDirectoryAsync(destination, ct);
+            return manifest;
+        }
+
+        Task<TransferManifest> receiving = ReceiveAsync();
+        await Task.WhenAll(sender.SendAsync(source, ct), receiving);
+        return await receiving;
+    }
+
     [Fact]
-    public async Task Sender_CreateSessionAndInitialize_ShouldGenerateSessionCode()
+    public async Task CreateSession_ShouldReturnNumericCodeBeforePeerConnects()
     {
-        using CancellationTokenSource cts = CreateTimeoutCancellationTokenSource();
+        using CancellationTokenSource cts = CreateTimeout();
+        await using PifeonServer client = CreateClient();
+        await using ISenderSession session = await client.CreateSessionHandleAsync(cts.Token);
+        ISender sender = await session.GetSenderAsync(cts.Token);
 
-        // Arrange: Create WebSocket client for sender
-        WebSocketClient wsClient = _factory.Server.CreateWebSocketClient();
-        WebSocket senderSocket = await wsClient.ConnectAsync(
-            new Uri(_factory.Server.BaseAddress, "/ws/session/create"), cts.Token);
-
-        // Create transport and channels
-        var transportChannel = new WebSocketTransportChannel(senderSocket);
-        var serverChannel = new ServerMessageChannel(transportChannel);
-        var peerChannel = new PeerMessageChannel(transportChannel);
-
-        // Act: Create sender session (manages socket lifetime)
-        PifeonSession session = await PifeonSession.CreateSenderAsync(serverChannel, peerChannel, cts.Token);
-        await using (session)
-        {
-            ISender sender = await session.GetSenderAsync(cts.Token);
-            string code = await sender.InitializeSessionAsync(cts.Token);
-
-            // Assert: Code should be generated
-            Assert.NotEmpty(code);
-            Assert.Matches(@"^[A-Z0-9]{6}$", code);
-        }
+        Assert.Matches("^[0-9]{6}$", session.Code);
+        Assert.Equal(session.Code, await sender.InitializeSessionAsync(cts.Token));
+        Assert.False(session.IsConnected);
     }
 
-    /// <summary>
-    /// Tests receiver joining with valid code through IReceiver interface.
-    /// </summary>
     [Fact]
-    public async Task Receiver_JoinSessionWithValidCode_ShouldSucceed()
+    public async Task JoinSession_ShouldConfirmDirectConnectionAndRaiseNotificationOnce()
     {
-        using CancellationTokenSource cts = CreateTimeoutCancellationTokenSource();
-
-        WebSocketClient wsClient = _factory.Server.CreateWebSocketClient();
-
-        // Arrange: Create sender session to get valid code
-        WebSocket senderSocket = await wsClient.ConnectAsync(
-            new Uri(_factory.Server.BaseAddress, "/ws/session/create"), cts.Token);
-        var senderTransport = new WebSocketTransportChannel(senderSocket);
-        var senderServerChannel = new ServerMessageChannel(senderTransport);
-        var senderPeerChannel = new PeerMessageChannel(senderTransport);
-
-        PifeonSession senderSession = await PifeonSession.CreateSenderAsync(senderServerChannel, senderPeerChannel, cts.Token);
-        await using (senderSession)
+        using CancellationTokenSource cts = CreateTimeout();
+        await using PifeonServer client = CreateClient();
+        await using ISenderSession senderSession = await client.CreateSessionHandleAsync(cts.Token);
+        ISender sender = await senderSession.GetSenderAsync(cts.Token);
+        var joined = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int notificationCount = 0;
+        sender.OnReceiverJoined += () =>
         {
-            ISender sender = await senderSession.GetSenderAsync(cts.Token);
-            string sessionCode = await sender.InitializeSessionAsync(cts.Token);
+            Interlocked.Increment(ref notificationCount);
+            joined.TrySetResult();
+        };
+        Assert.False(senderSession.IsConnected);
 
-            // Act: Create receiver and join
-            WebSocket receiverSocket = await wsClient.ConnectAsync(
-                new Uri(_factory.Server.BaseAddress, $"/ws/session/join/{sessionCode}"), cts.Token);
-            var receiverTransport = new WebSocketTransportChannel(receiverSocket);
-            var receiverServerChannel = new ServerMessageChannel(receiverTransport);
-            var receiverPeerChannel = new PeerMessageChannel(receiverTransport);
+        await using IReceiverSession receiverSession = await client.JoinSessionHandleAsync(senderSession.Code, cts.Token);
+        IReceiver receiver = await receiverSession.GetReceiverAsync(cts.Token);
+        await senderSession.WaitUntilConnectedAsync(cts.Token);
+        await joined.Task.WaitAsync(cts.Token);
 
-            PifeonSession receiverSession = await PifeonSession.CreateReceiverAsync(sessionCode, receiverServerChannel, receiverPeerChannel, cts.Token);
-            await using (receiverSession)
-            {
-                IReceiver receiver = await receiverSession.GetReceiverAsync(cts.Token);
-
-                // Assert: Receiver should be created successfully
-                Assert.NotNull(receiver);
-            }
-        }
+        Assert.NotNull(receiver);
+        Assert.True(senderSession.IsConnected);
+        Assert.True(receiverSession.IsConnected);
+        Assert.Equal(1, notificationCount);
+        await AssertSignalingSessionRemovedAsync(senderSession.Code, cts.Token);
     }
 
-    /// <summary>
-    /// Tests that receiver joining with wrong code raises exception with 404 status.
-    /// </summary>
     [Fact]
-    public async Task Receiver_JoinSessionWithInvalidCode_ShouldThrowInvalidOperationWith404()
+    public async Task JoinSession_WithInvalidCode_ShouldReportSessionNotFound()
     {
-        using CancellationTokenSource cts = CreateTimeoutCancellationTokenSource();
-
-        WebSocketClient wsClient = _factory.Server.CreateWebSocketClient();
-
-        // Act & Assert: Joining with invalid code should throw
-        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await wsClient.ConnectAsync(
-                new Uri(_factory.Server.BaseAddress, "/ws/session/join/INVALID"), cts.Token));
-
-        Assert.Contains("404", ex.Message);
+        using CancellationTokenSource cts = CreateTimeout();
+        await using PifeonServer client = CreateClient();
+        await Assert.ThrowsAsync<SessionNotFoundException>(() => client.JoinSessionHandleAsync("000000", cts.Token));
     }
 
-    /// <summary>
-    /// Tests the full pairing flow where sender notifies receiver joined event.
-    /// </summary>
     [Fact]
-    public async Task FullPairingFlow_Sender_CreatesSession_Receiver_Joins_NotificationFires()
+    public async Task CancelConnectionWait_ShouldAllowClosingUnpairedSession()
     {
-        using CancellationTokenSource cts = CreateTimeoutCancellationTokenSource();
+        using CancellationTokenSource cts = CreateTimeout();
+        await using PifeonServer client = CreateClient();
+        await using ISenderSession session = await client.CreateSessionHandleAsync(cts.Token);
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
 
-        bool senderReceivedNotification = false;
-        bool receiverWasNotified = false;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => session.WaitUntilConnectedAsync(canceled.Token));
+        await session.CloseAsync(cts.Token);
+        await session.CloseAsync(cts.Token);
 
-        WebSocketClient wsClient = _factory.Server.CreateWebSocketClient();
-        wsClient.ConfigureRequest = req => req.Headers["X-Pifeon-Client-Id"] = nameof(FullPairingFlow_Sender_CreatesSession_Receiver_Joins_NotificationFires);
-
-        // Arrange: Create sender
-        WebSocket senderSocket = await wsClient.ConnectAsync(
-            new Uri(_factory.Server.BaseAddress, "/ws/session/create"), cts.Token);
-        var senderTransport = new WebSocketTransportChannel(senderSocket);
-        var senderServerChannel = new ServerMessageChannel(senderTransport);
-        var senderPeerChannel = new PeerMessageChannel(senderTransport);
-
-        PifeonSession senderSession = await PifeonSession.CreateSenderAsync(senderServerChannel, senderPeerChannel, cts.Token);
-        await using (senderSession)
-        {
-            ISender sender = await senderSession.GetSenderAsync(cts.Token);
-            sender.OnReceiverJoined += () => { senderReceivedNotification = true; };
-            string sessionCode = await sender.InitializeSessionAsync(cts.Token);
-
-            // Act: Receiver joins in parallel task to avoid blocking
-            var receiverTask = Task.Run(async () =>
-            {
-                try
-                {
-                    WebSocket receiverSocket = await wsClient.ConnectAsync(
-                        new Uri(_factory.Server.BaseAddress, $"/ws/session/join/{sessionCode}"), cts.Token);
-                    var receiverTransport = new WebSocketTransportChannel(receiverSocket);
-                    var receiverServerChannel = new ServerMessageChannel(receiverTransport);
-                    var receiverPeerChannel = new PeerMessageChannel(receiverTransport);
-
-                    PifeonSession receiverSession = await PifeonSession.CreateReceiverAsync(sessionCode, receiverServerChannel, receiverPeerChannel, cts.Token);
-                    await using (receiverSession)
-                    {
-                        IReceiver receiver = await receiverSession.GetReceiverAsync(cts.Token);
-                        receiverWasNotified = true;
-                        // Keep receiver alive briefly to ensure sender processes the join notification
-                        await Task.Delay(300, cts.Token);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException($"Receiver setup failed: {ex.Message}", ex);
-                }
-            }, cts.Token);
-
-            // Wait for receiver to join
-            await receiverTask;
-
-            // Small delay to let notification propagate
-            await Task.Delay(300, cts.Token);
-
-            // Assert: Sender should have received on-receiver-joined notification
-            Assert.True(senderReceivedNotification, "Sender should be notified when receiver joins");
-            Assert.True(receiverWasNotified, "Receiver should join successfully");
-        }
+        Assert.False(session.IsConnected);
+        await AssertSignalingSessionRemovedAsync(session.Code, cts.Token);
     }
 
-    /// <summary>
-    /// Tests directory transfer with multiple files to verify folder structure preservation.
-    /// </summary>
     [Fact]
-    public async Task FileTransfer_SendDirectory_ReceiverShouldReceiveAllFiles()
+    public async Task DirectoryTransfer_ShouldPreserveEveryFileAfterSignalingIsRemoved()
     {
-        using CancellationTokenSource cts = CreateTimeoutCancellationTokenSource(DefaultTimeoutMs * 2);
-
-        // Arrange: Create a test directory structure
-        string sourceDirPath = Path.Combine(_tempDirectory!, "source");
-        string subDirPath = Path.Combine(sourceDirPath, "subfolder");
-        Directory.CreateDirectory(subDirPath);
-
-        await File.WriteAllTextAsync(Path.Combine(sourceDirPath, "file1.txt"), "Content of file 1", cts.Token);
-        await File.WriteAllTextAsync(Path.Combine(sourceDirPath, "file2.txt"), "Content of file 2", cts.Token);
-        await File.WriteAllTextAsync(Path.Combine(subDirPath, "file3.txt"), "Content of file 3", cts.Token);
-
-        WebSocketClient wsClient = _factory.Server.CreateWebSocketClient();
-        wsClient.ConfigureRequest = req => req.Headers["X-Pifeon-Client-Id"] = nameof(FileTransfer_SendDirectory_ReceiverShouldReceiveAllFiles);
-
-        string? receiverDestination = null;
-
-        try
+        using CancellationTokenSource cts = CreateTimeout();
+        string source = Path.Combine(_tempDirectory, "source");
+        string destination = Path.Combine(_tempDirectory, "received");
+        Directory.CreateDirectory(Path.Combine(source, "nested"));
+        var expected = new Dictionary<string, byte[]>
         {
-            // Arrange: Set up sender
-            WebSocket senderSocket = await wsClient.ConnectAsync(
-                new Uri(_factory.Server.BaseAddress, "/ws/session/create"), cts.Token);
-            var senderTransport = new WebSocketTransportChannel(senderSocket);
-            var senderServerChannel = new ServerMessageChannel(senderTransport);
-            var senderPeerChannel = new PeerMessageChannel(senderTransport);
-
-            PifeonSession senderSession = await PifeonSession.CreateSenderAsync(senderServerChannel, senderPeerChannel, cts.Token);
-            await using (senderSession)
-            {
-                ISender sender = await senderSession.GetSenderAsync(cts.Token);
-                string sessionCode = await sender.InitializeSessionAsync(cts.Token);
-
-                // Set up receiver
-                WebSocket receiverSocket = await wsClient.ConnectAsync(
-                    new Uri(_factory.Server.BaseAddress, $"/ws/session/join/{sessionCode}"), cts.Token);
-                var receiverTransport = new WebSocketTransportChannel(receiverSocket);
-                var receiverServerChannel = new ServerMessageChannel(receiverTransport);
-                var receiverPeerChannel = new PeerMessageChannel(receiverTransport);
-
-                PifeonSession receiverSession = await PifeonSession.CreateReceiverAsync(sessionCode, receiverServerChannel, receiverPeerChannel, cts.Token);
-                await using (receiverSession)
-                {
-                    IReceiver receiver = await receiverSession.GetReceiverAsync(cts.Token);
-                    receiverDestination = Path.Combine(_tempDirectory!, $"receive_{Guid.NewGuid():N}");
-                    Directory.CreateDirectory(receiverDestination);
-
-                    // Act: Receiver must get manifest BEFORE sender starts (they run concurrently but receiver listens first)
-                    // Start receiver manifest fetch as a task so it's ready to listen
-                    Task<TransferManifest> manifestTask = receiver.ConnectAndGetManifestAsync(sessionCode, cts.Token);
-
-                    // Small delay to ensure receiver is listening before sender sends
-                    await Task.Delay(100, cts.Token);
-
-                    // Now sender starts sending (which will send manifest first)
-                    Task senderTask = sender.SendAsync(sourceDirPath, cts.Token);
-
-                    // Wait for both to complete
-                    await manifestTask; // Manifest received by receiver
-                    Task receiverTask = receiver.ReceiveToDirectoryAsync(receiverDestination, cts.Token);
-
-                    await Task.WhenAll(senderTask, receiverTask);
-
-                    // Assert: All files should be transferred with folder structure
-                    Assert.True(File.Exists(Path.Combine(receiverDestination, "file1.txt")));
-                    Assert.True(File.Exists(Path.Combine(receiverDestination, "file2.txt")));
-                    Assert.True(File.Exists(Path.Combine(receiverDestination, "subfolder", "file3.txt")));
-
-                    string? content = await File.ReadAllTextAsync(Path.Combine(receiverDestination, "file1.txt"), cts.Token);
-                    Assert.Equal("Content of file 1", content);
-                }
-            }
+            ["first.bin"] = RandomNumberGenerator.GetBytes(65537),
+            [Path.Combine("nested", "second.bin")] = RandomNumberGenerator.GetBytes(196613),
+            [Path.Combine("nested", "empty.bin")] = []
+        };
+        foreach (KeyValuePair<string, byte[]> file in expected)
+        {
+            await File.WriteAllBytesAsync(Path.Combine(source, file.Key), file.Value, cts.Token);
         }
-        finally
+        await using PifeonServer client = CreateClient();
+        await using ISenderSession senderSession = await client.CreateSessionHandleAsync(cts.Token);
+        ISender sender = await senderSession.GetSenderAsync(cts.Token);
+        await using IReceiverSession receiverSession = await client.JoinSessionHandleAsync(senderSession.Code, cts.Token);
+        IReceiver receiver = await receiverSession.GetReceiverAsync(cts.Token);
+        await senderSession.WaitUntilConnectedAsync(cts.Token);
+        await AssertSignalingSessionRemovedAsync(senderSession.Code, cts.Token);
+
+        TransferManifest manifest = await TransferAsync(sender, receiver, senderSession.Code, source, destination, cts.Token);
+
+        Assert.Equal(expected.Count, manifest.TotalFiles);
+        Assert.Equal(expected.Values.Sum(bytes => (long)bytes.Length), manifest.TotalSizeBytes);
+        Assert.Equal(expected.Count, Directory.GetFiles(destination, "*", SearchOption.AllDirectories).Length);
+        foreach (KeyValuePair<string, byte[]> file in expected)
         {
-            if (receiverDestination != null && Directory.Exists(receiverDestination))
-            {
-                Directory.Delete(receiverDestination, recursive: true);
-            }
+            Assert.Equal(file.Value, await File.ReadAllBytesAsync(Path.Combine(destination, file.Key), cts.Token));
         }
     }
 
-    /// <summary>
-    /// Tests progress tracking during file transfer operations.
-    /// </summary>
     [Fact]
-    public async Task FileTransfer_WithProgressTracking_ShouldReportProgress()
+    public async Task LargeManifest_ShouldTransferEmptyFilesAndBinaryData()
     {
-        using CancellationTokenSource cts = CreateTimeoutCancellationTokenSource(DefaultTimeoutMs * 2);
-
-        // Arrange: Create a large file for measurable progress
-        string testFilePath = Path.Combine(_tempDirectory!, "large_transfer_file.bin");
-        byte[] testData = new byte[512 * 1024]; // 512 KB
-        new Random(42).NextBytes(testData);
-        await File.WriteAllBytesAsync(testFilePath, testData, cts.Token);
-
-        WebSocketClient wsClient = _factory.Server.CreateWebSocketClient();
-        wsClient.ConfigureRequest = req => req.Headers["X-Pifeon-Client-Id"] = nameof(FileTransfer_WithProgressTracking_ShouldReportProgress);
-
-        var senderProgress = new List<(long sent, long total, string fileName)>();
-        var receiverProgress = new List<(long received, long total, string fileName)>();
-        string? receiverDestination = null;
-
-        try
+        using CancellationTokenSource cts = CreateTimeout();
+        string source = Path.Combine(_tempDirectory, "source");
+        string destination = Path.Combine(_tempDirectory, "received");
+        Directory.CreateDirectory(source);
+        for (int i = 0; i < 160; i++)
         {
-            // Arrange
-            WebSocket senderSocket = await wsClient.ConnectAsync(
-                new Uri(_factory.Server.BaseAddress, "/ws/session/create"), cts.Token);
-            var senderTransport = new WebSocketTransportChannel(senderSocket);
-            var senderServerChannel = new ServerMessageChannel(senderTransport);
-            var senderPeerChannel = new PeerMessageChannel(senderTransport);
-
-            PifeonSession senderSession = await PifeonSession.CreateSenderAsync(senderServerChannel, senderPeerChannel, cts.Token);
-            await using (senderSession)
-            {
-                ISender sender = await senderSession.GetSenderAsync(cts.Token);
-                sender.OnProgressChanged += (sent, total, fileName) =>
-                {
-                    senderProgress.Add((sent, total, fileName));
-                };
-
-                string sessionCode = await sender.InitializeSessionAsync(cts.Token);
-
-                WebSocket receiverSocket = await wsClient.ConnectAsync(
-                    new Uri(_factory.Server.BaseAddress, $"/ws/session/join/{sessionCode}"), cts.Token);
-                var receiverTransport = new WebSocketTransportChannel(receiverSocket);
-                var receiverServerChannel = new ServerMessageChannel(receiverTransport);
-                var receiverPeerChannel = new PeerMessageChannel(receiverTransport);
-
-                PifeonSession receiverSession = await PifeonSession.CreateReceiverAsync(sessionCode, receiverServerChannel, receiverPeerChannel, cts.Token);
-                await using (receiverSession)
-                {
-                    IReceiver receiver = await receiverSession.GetReceiverAsync(cts.Token);
-                    receiver.OnProgressChanged += (received, total, fileName) =>
-                    {
-                        receiverProgress.Add((received, total, fileName));
-                    };
-
-                    receiverDestination = Path.Combine(_tempDirectory!, $"receive_{Guid.NewGuid():N}");
-                    Directory.CreateDirectory(receiverDestination);
-
-                    // Act: Transfer with progress tracking
-                    // Receiver must get manifest BEFORE sender starts  
-                    Task<TransferManifest> manifestTask = receiver.ConnectAndGetManifestAsync(sessionCode, cts.Token);
-
-                    // Small delay to ensure receiver is listening
-                    await Task.Delay(100, cts.Token);
-
-                    // Sender starts (will send manifest first)
-                    Task senderTask = sender.SendAsync(testFilePath, cts.Token);
-
-                    // Wait for manifest and then receive files
-                    await manifestTask;
-                    Task receiverTask = receiver.ReceiveToDirectoryAsync(receiverDestination, cts.Token);
-
-                    await Task.WhenAll(senderTask, receiverTask);
-
-                    // Assert: Both sides should report progress
-                    Assert.NotEmpty(senderProgress);
-                    Assert.NotEmpty(receiverProgress);
-
-                    // Verify final progress indicates completion
-                    (long sent, long total, string fileName) finalSenderProgress = senderProgress.LastOrDefault();
-                    Assert.True(finalSenderProgress.sent >= testData.Length, "Sender should report full transfer");
-                }
-            }
+            await File.WriteAllBytesAsync(Path.Combine(source, $"{new string('a', 100)}-{i}.txt"), [], cts.Token);
         }
-        finally
-        {
-            if (receiverDestination != null && Directory.Exists(receiverDestination))
-            {
-                Directory.Delete(receiverDestination, recursive: true);
-            }
-        }
-    }
-}
+        byte[] data = RandomNumberGenerator.GetBytes(196613);
+        await File.WriteAllBytesAsync(Path.Combine(source, "data.bin"), data, cts.Token);
+        await using PifeonServer client = CreateClient();
+        await using ISenderSession senderSession = await client.CreateSessionHandleAsync(cts.Token);
+        ISender sender = await senderSession.GetSenderAsync(cts.Token);
+        await using IReceiverSession receiverSession = await client.JoinSessionHandleAsync(senderSession.Code, cts.Token);
+        IReceiver receiver = await receiverSession.GetReceiverAsync(cts.Token);
+        await senderSession.WaitUntilConnectedAsync(cts.Token);
+        await AssertSignalingSessionRemovedAsync(senderSession.Code, cts.Token);
 
-/// <summary>
-/// Integration tests for session expiration scenarios using ShortSessionTimeoutServerFixture.
-/// </summary>
-public class PifeonSessionExpirationTests : IClassFixture<ShortSessionTimeoutServerFixture>, IAsyncLifetime
-{
-    private readonly ShortSessionTimeoutServerFixture _factory;
-    private const int DefaultTimeoutMs = 15000;
+        TransferManifest manifest = await TransferAsync(sender, receiver, senderSession.Code, source, destination, cts.Token);
 
-    public PifeonSessionExpirationTests(ShortSessionTimeoutServerFixture factory)
-    {
-        _factory = factory;
+        Assert.True(JsonSerializer.SerializeToUtf8Bytes(manifest, SignalingJsonContext.Default.TransferManifest).Length > 16 * 1024);
+        Assert.Equal(161, manifest.TotalFiles);
+        Assert.Equal(data.Length, manifest.TotalSizeBytes);
+        Assert.Equal(data, await File.ReadAllBytesAsync(Path.Combine(destination, "data.bin"), cts.Token));
+        Assert.Equal(160, Directory.GetFiles(destination, "*.txt").Length);
+        Assert.All(Directory.GetFiles(destination, "*.txt"), path => Assert.Equal(0, new FileInfo(path).Length));
     }
 
-    public async ValueTask InitializeAsync() => await Task.CompletedTask;
-    public async ValueTask DisposeAsync() => await Task.CompletedTask;
-
-    private static CancellationTokenSource CreateTimeoutCancellationTokenSource(int timeoutMs = DefaultTimeoutMs)
-    {
-        CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        cts.CancelAfter(timeoutMs);
-        return cts;
-    }
-
-    /// <summary>
-    /// Tests that expired sessions cannot be joined.
-    /// The ShortSessionTimeoutServerFixture uses a 350ms timeout.
-    /// </summary>
     [Fact]
-    public async Task JoinSession_AfterExpiration_ShouldFailWith404()
+    public async Task FileTransfer_ShouldReportExactProgressForEveryChunk()
     {
-        using CancellationTokenSource cts = CreateTimeoutCancellationTokenSource();
+        using CancellationTokenSource cts = CreateTimeout();
+        string file = Path.Combine(_tempDirectory, "data.bin");
+        string destination = Path.Combine(_tempDirectory, "received");
+        byte[] data = RandomNumberGenerator.GetBytes(512 * 1024 + 7);
+        await File.WriteAllBytesAsync(file, data, cts.Token);
+        await using PifeonServer client = CreateClient();
+        await using ISenderSession senderSession = await client.CreateSessionHandleAsync(cts.Token);
+        ISender sender = await senderSession.GetSenderAsync(cts.Token);
+        await using IReceiverSession receiverSession = await client.JoinSessionHandleAsync(senderSession.Code, cts.Token);
+        IReceiver receiver = await receiverSession.GetReceiverAsync(cts.Token);
+        var sent = new List<(long Current, long Total, string File)>();
+        var received = new List<(long Current, long Total, string File)>();
+        sender.OnProgressChanged += (current, total, name) => sent.Add((current, total, name));
+        receiver.OnProgressChanged += (current, total, name) => received.Add((current, total, name));
 
-        WebSocketClient wsClient = _factory.Server.CreateWebSocketClient();
+        await TransferAsync(sender, receiver, senderSession.Code, file, destination, cts.Token);
 
-        // Arrange: Create a sender session code
-        WebSocket senderSocket = await wsClient.ConnectAsync(
-            new Uri(_factory.Server.BaseAddress, "/ws/session/create"), cts.Token);
-        var senderTransport = new WebSocketTransportChannel(senderSocket);
-        var senderServerChannel = new ServerMessageChannel(senderTransport);
-        var senderPeerChannel = new PeerMessageChannel(senderTransport);
-
-        PifeonSession senderSession = await PifeonSession.CreateSenderAsync(senderServerChannel, senderPeerChannel, cts.Token);
-        await using (senderSession)
+        Assert.Equal(9, sent.Count);
+        Assert.Equal(sent, received);
+        for (int i = 0; i < sent.Count; i++)
         {
-            ISender sender = await senderSession.GetSenderAsync(cts.Token);
-            string sessionCode = await sender.InitializeSessionAsync(cts.Token);
-
-            // Act: Wait for session to expire (350ms + buffer)
-            await Task.Delay(500, cts.Token);
-
-            // Assert: Trying to join should get 404
-            InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-                await wsClient.ConnectAsync(
-                    new Uri(_factory.Server.BaseAddress, $"/ws/session/join/{sessionCode}"), cts.Token));
-
-            Assert.Contains("404", ex.Message);
+            Assert.Equal(Math.Min((i + 1) * 65536L, data.Length), sent[i].Current);
+            Assert.Equal(data.Length, sent[i].Total);
+            Assert.Equal("data.bin", sent[i].File);
         }
+        Assert.Equal(data, await File.ReadAllBytesAsync(Path.Combine(destination, "data.bin"), cts.Token));
+    }
+
+    [Fact]
+    public async Task CompatibilityApi_ShouldUseDirectTransferAndOwnSessionLifetime()
+    {
+        using CancellationTokenSource cts = CreateTimeout();
+        await using PifeonServer client = CreateClient();
+        await using ISender sender = await client.CreateSessionAsync(cts.Token);
+        await using IReceiver receiver = await client.JoinSessionAsync(sender.Code, cts.Token);
+        await AssertSignalingSessionRemovedAsync(sender.Code, cts.Token);
+        string file = Path.Combine(_tempDirectory, "compatibility.bin");
+        byte[] bytes = RandomNumberGenerator.GetBytes(65537);
+        await File.WriteAllBytesAsync(file, bytes, cts.Token);
+        string destination = Path.Combine(_tempDirectory, "received");
+
+        await TransferAsync(sender, receiver, sender.Code, file, destination, cts.Token);
+
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(Path.Combine(destination, "compatibility.bin"), cts.Token));
     }
 }

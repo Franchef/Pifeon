@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Threading.Channels;
 using Moq;
 using Pifeon.Core.Abstractions;
 using Pifeon.Core.Exceptions;
@@ -8,187 +9,202 @@ using Pifeon.Core.Signaling.Messages;
 
 namespace Pifeon.Tests.CoreTests;
 
-public sealed class PifeonSessionTests
+public sealed class PifeonSessionTests : IDisposable
 {
-    [Fact]
-    public async Task CreateSenderAsync_ShouldSetCode_WhenServerReturnsCodeCreated()
+    private readonly Mock<IServerMessageChannel> _server = new();
+    private readonly Mock<IPeerMessageChannel> _peer = new();
+    private readonly Channel<ServerNetworkMessage> _messages = Channel.CreateUnbounded<ServerNetworkMessage>();
+    private readonly CancellationTokenSource _timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+
+    public PifeonSessionTests()
     {
-        var serverChannelMock = new Mock<IServerMessageChannel>();
-        var peerChannelMock = new Mock<IPeerMessageChannel>();
-
-        byte[] responsePayload = JsonSerializer.SerializeToUtf8Bytes(
-            new CodeCreatedResponse("CODE_CREATED", "123456"),
-            SignalingJsonContext.Default.CodeCreatedResponse);
-
-        serverChannelMock
-            .Setup(s => s.SendMessageAsync(It.IsAny<ServerNetworkMessage>(), It.IsAny<CancellationToken>()))
+        _timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        _server.Setup(channel => channel.ReceiveMessageAsync(It.IsAny<CancellationToken>()))
+            .Returns<CancellationToken>(ct => _messages.Reader.ReadAsync(ct));
+        _server.Setup(channel => channel.SendMessageAsync(It.IsAny<ServerNetworkMessage>(), It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
+        _server.Setup(channel => channel.CloseAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _server.Setup(channel => channel.DisposeAsync()).Returns(ValueTask.CompletedTask);
+        _peer.Setup(channel => channel.CloseAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _peer.Setup(channel => channel.DisposeAsync()).Returns(ValueTask.CompletedTask);
+    }
 
-        serverChannelMock
-            .Setup(s => s.ReceiveMessageAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ServerNetworkMessage(ServerNetworkMessageType.Handshake, 0, responsePayload));
+    public void Dispose()
+    {
+        _timeout.Dispose();
+    }
 
-        PifeonSession session = await PifeonSession.CreateSenderAsync(serverChannelMock.Object, peerChannelMock.Object, TestContext.Current.CancellationToken);
+    private void EnqueueCreated(string code = "123456")
+    {
+        Assert.True(_messages.Writer.TryWrite(new ServerNetworkMessage(ServerNetworkMessageType.Handshake, 0,
+            JsonSerializer.SerializeToUtf8Bytes(new CodeCreatedResponse("CODE_CREATED", code), SignalingJsonContext.Default.CodeCreatedResponse))));
+    }
+
+    private void EnqueueJoined()
+    {
+        Assert.True(_messages.Writer.TryWrite(new ServerNetworkMessage(ServerNetworkMessageType.IpExchanges, 0,
+            JsonSerializer.SerializeToUtf8Bytes(new ReceiverJoinedResponse("RECEIVER_JOINED"), SignalingJsonContext.Default.ReceiverJoinedResponse))));
+    }
+
+    private void EnqueueError(string message)
+    {
+        Assert.True(_messages.Writer.TryWrite(new ServerNetworkMessage(ServerNetworkMessageType.Abort, 0,
+            JsonSerializer.SerializeToUtf8Bytes(new ErrorResponse("ERROR", message), SignalingJsonContext.Default.ErrorResponse))));
+    }
+
+    [Fact]
+    public async Task CreateSender_ShouldReadCodeWithoutSendingRedundantCreateHandshake()
+    {
+        EnqueueCreated();
+        await using ISenderSession session = await PifeonSession.CreateSenderAsync(_server.Object, _peer.Object, _timeout.Token);
 
         Assert.Equal("123456", session.Code);
+        Assert.False(session.IsConnected);
+        _server.Verify(channel => channel.SendMessageAsync(It.IsAny<ServerNetworkMessage>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task CreateSenderAsync_ShouldThrowCreateSessionRateLimitedException_WhenServerReturnsRateLimitError()
+    public async Task CreateSender_ShouldReportRateLimitResponse()
     {
-        var serverChannelMock = new Mock<IServerMessageChannel>();
-        var peerChannelMock = new Mock<IPeerMessageChannel>();
-
-        byte[] errorPayload = JsonSerializer.SerializeToUtf8Bytes(
-            new ErrorResponse("ERROR", "429 too many requests"),
-            SignalingJsonContext.Default.ErrorResponse);
-
-        serverChannelMock
-            .Setup(s => s.SendMessageAsync(It.IsAny<ServerNetworkMessage>(), It.IsAny<CancellationToken>()))
-            .Returns(ValueTask.CompletedTask);
-
-        serverChannelMock
-            .Setup(s => s.ReceiveMessageAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ServerNetworkMessage(ServerNetworkMessageType.Abort, 0, errorPayload));
-
+        EnqueueError("429 too many requests");
         await Assert.ThrowsAsync<CreateSessionRateLimitedException>(() =>
-            PifeonSession.CreateSenderAsync(serverChannelMock.Object, peerChannelMock.Object, TestContext.Current.CancellationToken));
+            PifeonSession.CreateSenderAsync(_server.Object, _peer.Object, _timeout.Token));
     }
 
     [Fact]
-    public async Task CreateReceiverAsync_ShouldSendJoinHandshakeWithCode()
+    public async Task CreateReceiver_WithInjectedPeer_ShouldNotSendRedundantJoinHandshake()
     {
-        var serverChannelMock = new Mock<IServerMessageChannel>();
-        var peerChannelMock = new Mock<IPeerMessageChannel>();
+        await using IReceiverSession session = await PifeonSession.CreateReceiverAsync("654321", _server.Object, _peer.Object, _timeout.Token);
+        Assert.Equal("654321", session.Code);
+        _server.Verify(channel => channel.SendMessageAsync(It.IsAny<ServerNetworkMessage>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 
-        ServerNetworkMessage? captured = null;
+    [Fact]
+    public async Task GetSender_ShouldReturnBeforeReceiverJoins()
+    {
+        EnqueueCreated();
+        await using ISenderSession session = await PifeonSession.CreateSenderAsync(_server.Object, _peer.Object, _timeout.Token);
 
-        serverChannelMock
-            .Setup(s => s.SendMessageAsync(It.IsAny<ServerNetworkMessage>(), It.IsAny<CancellationToken>()))
+        ISender sender = await session.GetSenderAsync(_timeout.Token);
+
+        Assert.Equal(session.Code, sender.Code);
+        Assert.False(session.IsConnected);
+        EnqueueJoined();
+        await session.WaitUntilConnectedAsync(_timeout.Token);
+        Assert.True(session.IsConnected);
+    }
+
+    [Fact]
+    public async Task DirectSession_ShouldNotTreatReceiverJoinedAsConfirmedPeerConnection()
+    {
+        EnqueueCreated();
+        EnqueueJoined();
+        var joinedConsumed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _server.Setup(channel => channel.ReceiveMessageAsync(It.IsAny<CancellationToken>()))
+            .Returns<CancellationToken>(async ct =>
+            {
+                ServerNetworkMessage message = await _messages.Reader.ReadAsync(ct);
+                if (message.Type == ServerNetworkMessageType.IpExchanges)
+                {
+                    joinedConsumed.TrySetResult();
+                }
+                return message;
+            });
+        var endpointSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _server.Setup(channel => channel.SendMessageAsync(It.IsAny<ServerNetworkMessage>(), It.IsAny<CancellationToken>()))
             .Returns<ServerNetworkMessage, CancellationToken>((message, _) =>
             {
-                captured = message;
+                Assert.Equal(ServerNetworkMessageType.IpExchanges, message.Type);
+                endpointSent.TrySetResult();
                 return ValueTask.CompletedTask;
             });
+        await using ISenderSession session = await PifeonSession.CreateSenderAsync(_server.Object, new DirectPeerMessageChannel(), _timeout.Token);
+        await endpointSent.Task.WaitAsync(_timeout.Token);
+        await joinedConsumed.Task.WaitAsync(_timeout.Token);
+        ISender sender = await session.GetSenderAsync(_timeout.Token);
 
-        PifeonSession session = await PifeonSession.CreateReceiverAsync("654321", serverChannelMock.Object, peerChannelMock.Object, TestContext.Current.CancellationToken);
-
-        Assert.Equal("654321", session.Code);
-        Assert.NotNull(captured);
-
-        JoinSessionRequest? joinRequest = JsonSerializer.Deserialize(captured!.Value.Payload.Span, SignalingJsonContext.Default.JoinSessionRequest);
-        Assert.NotNull(joinRequest);
-        Assert.Equal("654321", joinRequest.Code);
+        Assert.Equal(session.Code, sender.Code);
+        Assert.False(session.IsConnected);
+        _server.Verify(channel => channel.CloseAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task GetSenderAsync_ShouldWaitReceiverJoined_AndReturnSender()
+    public async Task DirectReceiver_ShouldWaitForEndpointAndKeyConfirmation()
     {
-        var serverChannelMock = new Mock<IServerMessageChannel>();
-        var peerChannelMock = new Mock<IPeerMessageChannel>();
+        await using IReceiverSession session = await PifeonSession.CreateReceiverAsync(
+            "654321", _server.Object, new DirectPeerMessageChannel(), _timeout.Token);
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
 
-        byte[] createPayload = JsonSerializer.SerializeToUtf8Bytes(
-            new CodeCreatedResponse("CODE_CREATED", "123456"),
-            SignalingJsonContext.Default.CodeCreatedResponse);
-
-        byte[] receiverJoinedPayload = JsonSerializer.SerializeToUtf8Bytes(
-            new ReceiverJoinedResponse("RECEIVER_JOINED"),
-            SignalingJsonContext.Default.ReceiverJoinedResponse);
-
-        serverChannelMock
-            .Setup(s => s.SendMessageAsync(It.IsAny<ServerNetworkMessage>(), It.IsAny<CancellationToken>()))
-            .Returns(ValueTask.CompletedTask);
-
-        serverChannelMock
-            .SetupSequence(s => s.ReceiveMessageAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ServerNetworkMessage(ServerNetworkMessageType.Handshake, 0, createPayload))
-            .ReturnsAsync(new ServerNetworkMessage(ServerNetworkMessageType.IpExchanges, 1, receiverJoinedPayload));
-
-        PifeonSession session = await PifeonSession.CreateSenderAsync(serverChannelMock.Object, peerChannelMock.Object, TestContext.Current.CancellationToken);
-
-        ISender sender = await session.GetSenderAsync(TestContext.Current.CancellationToken);
-
-        Assert.NotNull(sender);
-        Assert.Equal("123456", sender.Code);
+        Assert.False(session.IsConnected);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => session.GetReceiverAsync(canceled.Token));
     }
 
     [Fact]
-    public async Task GetSenderAsync_ShouldThrow_WhenSessionIsReceiverSide()
+    public async Task GetSender_ShouldRejectReceiverSession()
     {
-        var serverChannelMock = new Mock<IServerMessageChannel>();
-        var peerChannelMock = new Mock<IPeerMessageChannel>();
-
-        serverChannelMock
-            .Setup(s => s.SendMessageAsync(It.IsAny<ServerNetworkMessage>(), It.IsAny<CancellationToken>()))
-            .Returns(ValueTask.CompletedTask);
-
-        PifeonSession session = await PifeonSession.CreateReceiverAsync("111111", serverChannelMock.Object, peerChannelMock.Object, TestContext.Current.CancellationToken);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => session.GetSenderAsync(TestContext.Current.CancellationToken));
+        await using IReceiverSession session = await PifeonSession.CreateReceiverAsync("111111", _server.Object, _peer.Object, _timeout.Token);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ((ISenderSession)session).GetSenderAsync(_timeout.Token));
     }
 
     [Fact]
-    public async Task WaitUntilConnectedAsync_ShouldThrowSessionNotFound_WhenServerReturnsInvalidCodeError()
+    public async Task GetReceiver_ShouldRejectSenderSession()
     {
-        var serverChannelMock = new Mock<IServerMessageChannel>();
-        var peerChannelMock = new Mock<IPeerMessageChannel>();
-
-        byte[] createPayload = JsonSerializer.SerializeToUtf8Bytes(
-            new CodeCreatedResponse("CODE_CREATED", "999999"),
-            SignalingJsonContext.Default.CodeCreatedResponse);
-
-        byte[] errorPayload = JsonSerializer.SerializeToUtf8Bytes(
-            new ErrorResponse("ERROR", "Code invalid or expired"),
-            SignalingJsonContext.Default.ErrorResponse);
-
-        serverChannelMock
-            .Setup(s => s.SendMessageAsync(It.IsAny<ServerNetworkMessage>(), It.IsAny<CancellationToken>()))
-            .Returns(ValueTask.CompletedTask);
-
-        serverChannelMock
-            .SetupSequence(s => s.ReceiveMessageAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ServerNetworkMessage(ServerNetworkMessageType.Handshake, 0, createPayload))
-            .ReturnsAsync(new ServerNetworkMessage(ServerNetworkMessageType.Abort, 1, errorPayload));
-
-        PifeonSession session = await PifeonSession.CreateSenderAsync(serverChannelMock.Object, peerChannelMock.Object, TestContext.Current.CancellationToken);
-
-        await Assert.ThrowsAsync<SessionNotFoundException>(() => session.WaitUntilConnectedAsync(TestContext.Current.CancellationToken));
+        EnqueueCreated();
+        await using ISenderSession session = await PifeonSession.CreateSenderAsync(_server.Object, _peer.Object, _timeout.Token);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ((IReceiverSession)session).GetReceiverAsync(_timeout.Token));
     }
 
     [Fact]
-    public async Task CloseAsync_ShouldBeIdempotent_AndCloseChannels()
+    public async Task WaitUntilConnected_ShouldReportInvalidCodeResponse()
     {
-        var serverChannelMock = new Mock<IServerMessageChannel>();
-        var peerChannelMock = new Mock<IPeerMessageChannel>();
+        EnqueueCreated("999999");
+        await using ISenderSession session = await PifeonSession.CreateSenderAsync(_server.Object, _peer.Object, _timeout.Token);
+        EnqueueError("Code invalid or expired");
 
-        byte[] createPayload = JsonSerializer.SerializeToUtf8Bytes(
-            new CodeCreatedResponse("CODE_CREATED", "123456"),
-            SignalingJsonContext.Default.CodeCreatedResponse);
+        await Assert.ThrowsAsync<SessionNotFoundException>(() => session.WaitUntilConnectedAsync(_timeout.Token));
+    }
 
-        serverChannelMock
-            .Setup(s => s.SendMessageAsync(It.IsAny<ServerNetworkMessage>(), It.IsAny<CancellationToken>()))
-            .Returns(ValueTask.CompletedTask);
+    [Fact]
+    public async Task CancelWait_ShouldNotCancelSubsequentConnectionWait()
+    {
+        EnqueueCreated();
+        await using ISenderSession session = await PifeonSession.CreateSenderAsync(_server.Object, _peer.Object, _timeout.Token);
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => session.WaitUntilConnectedAsync(canceled.Token));
 
-        serverChannelMock
-            .Setup(s => s.ReceiveMessageAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ServerNetworkMessage(ServerNetworkMessageType.Handshake, 0, createPayload));
+        EnqueueJoined();
+        await session.WaitUntilConnectedAsync(_timeout.Token);
+        Assert.True(session.IsConnected);
+    }
 
-        serverChannelMock
-            .Setup(s => s.CloseAsync(It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask)
-            .Verifiable();
+    [Fact]
+    public async Task Close_ShouldBeIdempotentAndClearConnectedState()
+    {
+        EnqueueCreated();
+        await using ISenderSession session = await PifeonSession.CreateSenderAsync(_server.Object, _peer.Object, _timeout.Token);
+        EnqueueJoined();
+        await session.WaitUntilConnectedAsync(_timeout.Token);
 
-        peerChannelMock
-            .Setup(s => s.CloseAsync(It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask)
-            .Verifiable();
+        await session.CloseAsync(_timeout.Token);
+        await session.CloseAsync(_timeout.Token);
 
-        PifeonSession session = await PifeonSession.CreateSenderAsync(serverChannelMock.Object, peerChannelMock.Object, TestContext.Current.CancellationToken);
+        Assert.False(session.IsConnected);
+        _server.Verify(channel => channel.CloseAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _peer.Verify(channel => channel.CloseAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
 
-        await session.CloseAsync(TestContext.Current.CancellationToken);
-        await session.CloseAsync(TestContext.Current.CancellationToken);
+    [Fact]
+    public async Task Dispose_ShouldCancelPendingListenerAndDisposeChannelsOnce()
+    {
+        EnqueueCreated();
+        ISenderSession session = await PifeonSession.CreateSenderAsync(_server.Object, _peer.Object, _timeout.Token);
+        await session.DisposeAsync();
+        await session.DisposeAsync();
 
-        serverChannelMock.Verify(s => s.CloseAsync(It.IsAny<CancellationToken>()), Times.Once);
-        peerChannelMock.Verify(s => s.CloseAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _server.Verify(channel => channel.DisposeAsync(), Times.Once);
+        _peer.Verify(channel => channel.DisposeAsync(), Times.Once);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => session.WaitUntilConnectedAsync(_timeout.Token));
     }
 }

@@ -203,7 +203,7 @@ public sealed class PifeonSenderTests : IDisposable
         // Assert: Progress events should have been raised
         Assert.NotEmpty(progressEvents);
         Assert.All(progressEvents, e => Assert.Equal(4, e.total)); // Total bytes
-        Assert.NotEmpty(progressEvents.Where(e => e.current == 4)); // Final progress
+        Assert.Contains(progressEvents, e => e.current == 4);
     }
 
     [Fact]
@@ -276,21 +276,116 @@ public sealed class PifeonSenderTests : IDisposable
             })
             .Returns(ValueTask.CompletedTask);
 
-        PeerNetworkMessage ackMessage = new PeerNetworkMessage(
-            PeerNetworkMessageType.ChunkAck,
-            1,
-            ReadOnlyMemory<byte>.Empty
-        );
-
         _peerChannelMock
             .Setup(p => p.ReceiveMessageAsync(cts.Token))
-            .ReturnsAsync(ackMessage);
+            .Returns(() => ValueTask.FromResult(new PeerNetworkMessage(
+                PeerNetworkMessageType.ChunkAck, chunkSendCount, ReadOnlyMemory<byte>.Empty)));
 
         // Act
         await _sut.SendAsync(_testDirectory, cts.Token);
 
         // Assert: Should send 2 chunks (one for each file)
         Assert.Equal(2, chunkSendCount);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public async Task SendAsync_ShouldRejectAcknowledgmentForWrongChunk(long sequence)
+    {
+        string file = Path.Combine(_testDirectory, "data.bin");
+        await File.WriteAllBytesAsync(file, new byte[] { 0, 128, 255 }, TestContext.Current.CancellationToken);
+        _peerChannelMock.Setup(channel => channel.SendMessageAsync(It.IsAny<PeerNetworkMessage>(), It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.CompletedTask);
+        _peerChannelMock.Setup(channel => channel.ReceiveMessageAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PeerNetworkMessage(PeerNetworkMessageType.ChunkAck, sequence, ReadOnlyMemory<byte>.Empty));
+
+        InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            _sut.SendAsync(file, TestContext.Current.CancellationToken));
+
+        Assert.Contains("Expected acknowledgment for chunk 1", error.Message);
+        _peerChannelMock.Verify(channel => channel.SendMessageAsync(
+            It.Is<PeerNetworkMessage>(message => message.Type == PeerNetworkMessageType.ChunkData),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SendAsync_ShouldWaitForAcknowledgmentBeforeSendingNextChunk()
+    {
+        using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(10));
+        byte[] bytes = Enumerable.Range(0, 65537).Select(index => (byte)(index % 256)).ToArray();
+        string file = Path.Combine(_testDirectory, "data.bin");
+        await File.WriteAllBytesAsync(file, bytes, cts.Token);
+        var firstChunkSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstAck = new TaskCompletionSource<PeerNetworkMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var chunks = new List<PeerNetworkMessage>();
+        _peerChannelMock.Setup(channel => channel.SendMessageAsync(It.IsAny<PeerNetworkMessage>(), cts.Token))
+            .Callback<PeerNetworkMessage, CancellationToken>((message, _) =>
+            {
+                if (message.Type == PeerNetworkMessageType.ChunkData)
+                {
+                    chunks.Add(message with { Payload = message.Payload.ToArray() });
+                    firstChunkSent.TrySetResult();
+                }
+            })
+            .Returns(ValueTask.CompletedTask);
+        _peerChannelMock.SetupSequence(channel => channel.ReceiveMessageAsync(cts.Token))
+            .Returns(() => new ValueTask<PeerNetworkMessage>(firstAck.Task.WaitAsync(cts.Token)))
+            .ReturnsAsync(new PeerNetworkMessage(PeerNetworkMessageType.ChunkAck, 2, ReadOnlyMemory<byte>.Empty));
+
+        Task sending = _sut.SendAsync(file, cts.Token);
+        await firstChunkSent.Task.WaitAsync(cts.Token);
+        Assert.Single(chunks);
+        Assert.False(sending.IsCompleted);
+        firstAck.SetResult(new PeerNetworkMessage(PeerNetworkMessageType.ChunkAck, 1, ReadOnlyMemory<byte>.Empty));
+        await sending.WaitAsync(cts.Token);
+
+        Assert.Equal(new long[] { 1, 2 }, chunks.Select(chunk => chunk.SequenceNumber));
+        Assert.Collection(chunks,
+            first => Assert.Equal(65536, first.Payload.Length),
+            second => Assert.Equal(1, second.Payload.Length));
+        Assert.Equal(bytes, chunks.SelectMany(chunk => chunk.Payload.ToArray()).ToArray());
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(65536, 1)]
+    [InlineData(65537, 2)]
+    [InlineData(131072, 2)]
+    public async Task SendAsync_ShouldPreserveBytesAtChunkBoundaries(int fileSize, int expectedChunks)
+    {
+        byte[] bytes = Enumerable.Range(0, fileSize).Select(index => (byte)(index % 256)).ToArray();
+        string file = Path.Combine(_testDirectory, "boundary.bin");
+        await File.WriteAllBytesAsync(file, bytes, TestContext.Current.CancellationToken);
+        var messages = new List<PeerNetworkMessage>();
+        long lastSequence = 0;
+        _peerChannelMock.Setup(channel => channel.SendMessageAsync(It.IsAny<PeerNetworkMessage>(), It.IsAny<CancellationToken>()))
+            .Callback<PeerNetworkMessage, CancellationToken>((message, _) =>
+            {
+                messages.Add(message with { Payload = message.Payload.ToArray() });
+                if (message.Type == PeerNetworkMessageType.ChunkData)
+                {
+                    lastSequence = message.SequenceNumber;
+                }
+            })
+            .Returns(ValueTask.CompletedTask);
+        _peerChannelMock.Setup(channel => channel.ReceiveMessageAsync(It.IsAny<CancellationToken>()))
+            .Returns(() => ValueTask.FromResult(new PeerNetworkMessage(PeerNetworkMessageType.ChunkAck, lastSequence, ReadOnlyMemory<byte>.Empty)));
+
+        await _sut.SendAsync(file, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PeerNetworkMessageType.Manifest, messages[0].Type);
+        PeerNetworkMessage[] chunks = messages.Skip(1).ToArray();
+        Assert.Equal(expectedChunks, chunks.Length);
+        Assert.All(chunks, chunk =>
+        {
+            Assert.Equal(PeerNetworkMessageType.ChunkData, chunk.Type);
+            Assert.InRange(chunk.Payload.Length, 1, PeerMessageChannel.MaximumChunkSize);
+        });
+        Assert.Equal(Enumerable.Range(1, expectedChunks).Select(value => (long)value), chunks.Select(chunk => chunk.SequenceNumber));
+        Assert.Equal(bytes, chunks.SelectMany(chunk => chunk.Payload.ToArray()).ToArray());
+        _peerChannelMock.Verify(channel => channel.ReceiveMessageAsync(It.IsAny<CancellationToken>()), Times.Exactly(expectedChunks));
     }
 
     #endregion

@@ -27,7 +27,11 @@ public sealed class KeyExchange : IDisposable
     public byte[] DeriveSharedSecret(byte[] peerPublicKey)
     {
         using var otherKey = ECDiffieHellman.Create();
-        otherKey.ImportSubjectPublicKeyInfo(peerPublicKey, out _);
+        otherKey.ImportSubjectPublicKeyInfo(peerPublicKey, out int bytesRead);
+        if (bytesRead != peerPublicKey.Length || otherKey.ExportParameters(false).Curve.Oid.Value != "1.2.840.10045.3.1.7")
+        {
+            throw new CryptographicException("Expected a complete NIST P-256 public key.");
+        }
 
         return _ecdh.DeriveKeyFromHash(otherKey.PublicKey, HashAlgorithmName.SHA256);
     }

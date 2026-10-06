@@ -13,9 +13,10 @@ public class PifeonSender : ISender
 {
     private readonly IPeerMessageChannel _peerChannel;
     private readonly ISignalingService? _legacySignalingService;
+    private readonly PifeonSession? _session;
     private bool _disposed;
 
-    private const int ChunkSize = 64 * 1024; // 64 KB chunks
+    private const int ChunkSize = PeerMessageChannel.MaximumChunkSize;
 
     public string Code { get; private set; }
     public bool IsExpired { get; private set; }
@@ -33,11 +34,8 @@ public class PifeonSender : ISender
     {
         _peerChannel = peerChannel ?? throw new ArgumentNullException(nameof(peerChannel));
         Code = code ?? throw new ArgumentNullException(nameof(code));
-
-        if (session != null)
-        {
-            session.OnReceiverJoined += () => OnReceiverJoined?.Invoke();
-        }
+        _session = session;
+        session?.OnReceiverJoined += () => OnReceiverJoined?.Invoke();
     }
 
     public PifeonSender(ISignalingService signalingService, ITransportChannel dataChannel)
@@ -79,6 +77,10 @@ public class PifeonSender : ISender
         {
             await _legacySignalingService.WaitForReceiverAsync(ct);
         }
+        if (_session is not null)
+        {
+            await _session.WaitUntilConnectedAsync(ct);
+        }
 
         // 3. Send manifest
         TransferManifest manifest = new TransferManifest(
@@ -106,16 +108,20 @@ public class PifeonSender : ISender
         {
             using FileStream fileStream = new FileStream(item.FullPath, FileMode.Open, FileAccess.Read);
             {
+                if (fileStream.Length != item.FileSize)
+                {
+                    throw new IOException($"File size changed after scanning: {item.RelativePath}.");
+                }
                 byte[] buffer = new byte[ChunkSize];
                 int bytesRead;
 
-                while ((bytesRead = await fileStream.ReadAsync(buffer, 0, buffer.Length, ct)) > 0)
+                while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(), ct)) > 0)
                 {
                     // Send chunk
                     PeerNetworkMessage chunkMessage = new PeerNetworkMessage(
                         PeerNetworkMessageType.ChunkData,
                         sequenceNumber,
-                        buffer[..bytesRead]
+                        buffer.AsMemory(0, bytesRead)
                     );
 
                     await _peerChannel.SendMessageAsync(chunkMessage, ct);
@@ -125,6 +131,10 @@ public class PifeonSender : ISender
                     if (ackMessage.Type != PeerNetworkMessageType.ChunkAck)
                     {
                         throw new InvalidOperationException($"Expected ChunkAck, received {ackMessage.Type}");
+                    }
+                    if (ackMessage.SequenceNumber != sequenceNumber)
+                    {
+                        throw new InvalidDataException($"Expected acknowledgment for chunk {sequenceNumber}, received {ackMessage.SequenceNumber}.");
                     }
 
                     // Update progress
@@ -142,7 +152,14 @@ public class PifeonSender : ISender
         if (!_disposed)
         {
             _disposed = true;
-            await _peerChannel.DisposeAsync();
+            if (_session is not null)
+            {
+                await _session.DisposeAsync();
+            }
+            else
+            {
+                await _peerChannel.DisposeAsync();
+            }
 
             if (_legacySignalingService is not null)
             {

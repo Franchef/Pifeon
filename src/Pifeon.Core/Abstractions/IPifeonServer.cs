@@ -15,12 +15,12 @@ public interface IPifeonServer : IAsyncDisposable, IDisposable
     /// <summary>
     /// Crea una sessione di pairing e restituisce l'handle di sessione.
     /// </summary>
-    Task<ISession> CreateSessionHandleAsync(CancellationToken ct = default);
+    Task<ISenderSession> CreateSessionHandleAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Si unisce a una sessione esistente e restituisce l'handle di sessione.
     /// </summary>
-    Task<ISession> JoinSessionHandleAsync(string code, CancellationToken ct = default);
+    Task<IReceiverSession> JoinSessionHandleAsync(string code, CancellationToken ct = default);
 
     /// <summary>
     /// Crea una nuova sessione di trasferimento e restituisce il mittente pronto col codice.

@@ -7,7 +7,7 @@ This document outlines the funding and sustainability strategy for **Pifeon**. A
 ## 📍 Stage 1: Bootstrapping & Zero-Cost Infrastructure (Months 1–6)
 *Objective: Build and launch the Minimum Viable Product (MVP) without incurring operational costs.*
 
-- **Sovereign Signaling Infrastructure:** Run the `Pifeon.Server` on **Oracle Cloud Always Free Tier** (providing up to 4 ARM Ampere Cores and 24 GB of RAM) to guarantee 100% uptime for the 6-digit code pairing service without maintenance costs.
+- **Sovereign Signaling Infrastructure:** Run the `Pifeon.Server` on **Oracle Cloud Always Free Tier** (providing up to 4 ARM Ampere Cores and 24 GB of RAM) to guarantee 100% uptime for the temporary-code pairing service without maintenance costs.
 - **Product Showcase & Marketing:** Host the product's landing page and documentation on **Cloudflare Pages** or **GitHub Pages**, leveraging global CDN performance with zero bandwidth limits.
 - **Developer Domains:** Secure cost-free domain mappings via open-source-friendly registries such as **DigitalPlat FreeDomain**.
 - **Distribution Channels:** Publish the desktop application on the **Microsoft Store** (via MSIX) and **Ubuntu Snap Store / Flathub** (via Snapcraft/Flatpak) to automate deployments and user updates using free vendor store networks.
@@ -31,7 +31,7 @@ This document outlines the funding and sustainability strategy for **Pifeon**. A
 - **Sovereign Tech Fund:** Target public infrastructure capital specialized in securing open-source tooling, data privacy, and robust underlying network layers.
 
 ### 🌐 Corporate Cloud Sponsorships
-- **Microsoft FOSS Fund & Azure Credits:** Leverage the C#/.NET 9 foundation of Pifeon to qualify for Microsoft's developer ecosystem programs. This opens access to recurring Azure cloud credits to sustain massively scaled global signaling nodes.
+- **Microsoft FOSS Fund & Azure Credits:** Leverage the C#/.NET 10 foundation of Pifeon to qualify for Microsoft's developer ecosystem programs. This opens access to recurring Azure cloud credits to sustain massively scaled global signaling nodes.
 - **Canonical Ecosystem Recognition:** Request integration into Canonical's official Linux showcases, scaling distribution and leveraging automated build networks across cross-platform Linux architectures (x64, ARM, etc.).
 
 ---

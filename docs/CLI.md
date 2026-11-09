@@ -1,15 +1,24 @@
-Pifeon.Cli
+# Pifeon CLI
 
-install and/or execute Pifeon commands from the command line-
+Use the CLI to establish a temporary signaling session and transfer files
+directly between peers.
 
 ## Sender
-send 'file|folder' --server `<server>` --port `<port>`
-- ask server to create session and return code
-- file or folder to send to server
-- custom server and port to connect
+
+```text
+pifeon send <PATH> [--server <URL>]
+```
+
+- Creates a temporary session and displays its 10-character pairing code.
+- Sends the selected file or folder directly to the connected receiver.
+- `--server` overrides the signaling server URL.
 
 ## Receiver
-receive 'folder' --code `<code>` --server `<server>` --port `<port>` 
-- ask server to join session with the provided code
-- folder to receive from server
-- custom server and port to connect
+
+```text
+pifeon receive <DESTINATION> [CODE] [--server <URL>]
+```
+
+- Joins the temporary session identified by `CODE`; if omitted, the CLI prompts for it.
+- Writes received files under `DESTINATION`.
+- `--server` overrides the signaling server URL.

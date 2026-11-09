@@ -21,7 +21,7 @@ sequenceDiagram
 
     S->>H: Open WSS /ws/session/create
     H->>H: Create temporary session
-    H-->>S: JSON CODE_CREATED with six-digit code
+    H-->>S: JSON CODE_CREATED with 10-character code
     S->>S: Start IPv4 TCP listener on an assigned port
     S->>S: Generate ephemeral ECDH P-256 key pair
     S->>H: JSON IP_EXCHANGE (IPv4 addresses, port, public key)
@@ -130,9 +130,9 @@ The JSON manifest contains:
 | `items[].relativePath` | File path relative to the source folder, or the source file name |
 | `items[].fileSize` | File size in bytes |
 
-The scanner computes hashes locally, but the current manifest does not transmit
-them and the receiver does not perform a post-transfer hash comparison.
-AES-GCM verifies the authenticity of packets in transit.
+The current transfer path skips pre-transfer hashing and the receiver does not
+perform a post-transfer hash comparison. AES-GCM verifies the authenticity of
+packets in transit.
 
 ### File boundaries and acknowledgments
 
@@ -212,8 +212,8 @@ flowchart TD
 - **Authentication model:** the signaling server is trusted to deliver the
   correct public keys. A malicious or compromised server can substitute keys;
   independent fingerprint verification is not implemented.
-- **Pairing code:** six digits identify a temporary session, not an encryption
-  key or proof of a human identity.
+- **Pairing code:** a 10-character high-entropy token identifies a temporary
+  session; it is not an encryption key or proof of a human identity.
 - **Transfer errors:** authentication failures, wrong chunk/ack sequences,
   invalid sizes, and invalid destination paths raise errors rather than
   continuing with corrupted data.
@@ -224,8 +224,11 @@ flowchart TD
 
 - [Client entry point](../src/Pifeon.Core/PifeonServer.cs)
 - [Session lifecycle](../src/Pifeon.Core/Services/PifeonSession.cs)
-- [Direct connection and key confirmation](../src/Pifeon.Core/Networking/DirectPeerMessageChannel.cs)
+- [Direct connection and key confirmation](../src/Pifeon.Core/Networking/DirectPeerConnectionEstablisher.cs)
+- [Connected peer-channel facade](../src/Pifeon.Core/Networking/DirectPeerMessageChannel.cs)
+- [Connection and transfer states](../src/Pifeon.Core/StateMachines/ProtocolStateMachines.cs)
 - [Peer message serialization](../src/Pifeon.Core/Networking/PeerMessageChannel.cs)
+- [Server signaling serialization](../src/Pifeon.Core/Networking/ServerMessageChannel.cs)
 - [Encrypted transport](../src/Pifeon.Core/Networking/EncryptedTransportChannel.cs)
 - [TCP framing](../src/Pifeon.Core/Networking/TcpTransportChannel.cs)
 - [Sender](../src/Pifeon.Core/Services/PifeonSender.cs)
@@ -251,7 +254,3 @@ flowchart TD
 - [Secure transport tests](../tests/Pifeon.Tests/CoreTests/SecurePeerTransportTests.cs)
   verify binary file framing, ECDH/AES-GCM round trips, tampering/replay rejection,
   directional/session key separation, TCP fragmentation, and unreachable endpoints.
-
-Legacy signaling and standalone STUN/P2P helper tests remain separate; they do
-not establish that the standard client performs NAT traversal or server-relayed
-file transfer.

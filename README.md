@@ -31,17 +31,16 @@ src/
 ├── Pifeon.Core/          # 🧠 Central logic library (.NET Class Library)
 │   ├── Networking/       # Direct TCP, binary framing, encrypted peer channels
 │   ├── Cryptography/     # Symmetric/Asymmetric end-to-end encryption
-│   ├── IO/               # Folder scanning, SHA256 hashing, and Stream handling
-│   └── Signaling/        # Abstractions for client pairing (ISignalingService)
+│   ├── IO/               # Folder scanning, hashing helpers, and stream handling
+│   └── Signaling/        # Pairing protocol DTOs and parsing
 │
 ├── Pifeon.Cli/           # 💻 Command Line Interface (Console Application)
 │   └── [Uses Spectre.Console for a rich, scriptable terminal experience]
 │
-├── Pifeon.Gui/           # 🎨 Native Graphical Interface (AvaloniaUI)
-│   └── [Cross-platform desktop UI with hardware rendering using MVVM]
-│
-└── Pifeon.Server/        # 🌐 Ultra-lightweight Signaling Server
-    └── [In-memory hub used exclusively for initial 6-digit code pairing]
+├── Pifeon.Server/        # 🌐 Ultra-lightweight signaling server
+│   └── [In-memory hub used exclusively for initial temporary-code pairing]
+├── Pifeon.AppHost/       # Aspire development orchestrator
+└── Pifeon.ServiceDefaults/ # Shared telemetry, health, and resilience defaults
 ```
 
 ---
@@ -53,8 +52,8 @@ secure connection setup, binary file transfer, and failure handling.
 
 ### Scenario A: One-Time Quick Transfer (WeTransfer Alternative)
 1. **The Sender** drops a file/folder into Pifeon.
-2. The client contacts `Pifeon.Server` and receives a temporary **6-digit code** (valid for 5 minutes).
-3. **The Receiver** enters the 6-digit code into their Pifeon instance.
+2. The client contacts `Pifeon.Server` and receives a temporary **10-character code** (valid for 5 minutes).
+3. **The Receiver** enters the code into their Pifeon instance.
 4. The peers exchange local IPv4 addresses, the sender's listening port, and ephemeral ECDH public keys through the server.
 5. The receiver connects directly to the sender. Both peers confirm possession of their derived keys using encrypted handshake messages, then close signaling; the server removes the session.
 6. **Both parties see live progress**, including cumulative bytes transferred, transfer speed, and the current file being transmitted.
@@ -67,11 +66,11 @@ secure connection setup, binary file transfer, and failure handling.
 - TCP packets have a four-byte big-endian length prefix and a bounded maximum size. Every peer packet (including manifest, acknowledgments, and handshake) is encrypted using the existing AES-GCM helper.
 - HKDF derives separate sender/receiver keys from the ECDH secret and session code. Encrypted packet counters reject replay/out-of-order packets; GCM rejects tampering.
 - Production signaling must use `wss://` with a trusted server certificate. The standard client permits `ws://` only for loopback development. Custom injected channels must provide their own trusted signaling transport and security.
-- A six-digit code is a temporary pairing code, not an encryption key or proof of a human identity. A malicious/compromised signaling server can substitute keys; protection against that requires independent fingerprint verification.
+- The high-entropy code is a temporary pairing credential, not an encryption key or proof of a human identity. A malicious/compromised signaling server can substitute keys; protection against that requires independent fingerprint verification.
 - Connection failures are reported explicitly. UDP STUN discovery is not used to advertise a TCP endpoint, and there is no silent server-relay fallback.
 
 ### Scenario B: Continuous Synchronization (Future-Proof Evolution)
-Leveraging Dependency Injection, the `ISignalingService` can be extended with an authenticated module:
+Continuous synchronization would require a separately designed authenticated session mode:
 - Peers exchange a permanent asymmetric key once.
 - The native .NET `FileSystemWatcher` monitors folder changes in real time.
 - Clients silently connect in the background to sync only the modified chunks (*delta sync*) of the files.

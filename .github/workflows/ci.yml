@@ -70,6 +70,6 @@ jobs:
     # Posts detailed coverage breakdown on open Pull Requests
     - name: Add PR Coverage Comment
       if: github.event_name == 'pull_request'
-      uses: marocchino/sticky-pull-request-comment@v2
+      uses: marocchino/sticky-pull-request-comment@v3
       with:
         path: code-coverage-results.md

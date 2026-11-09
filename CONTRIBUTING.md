@@ -24,6 +24,14 @@ dotnet build --no-restore --configuration Release
 dotnet test --no-build --configuration Release
 ```
 
+CI collects unit and integration coverage separately and uses the pinned
+`dotnet-coverage` tool in `.config/dotnet-tools.json` to merge hits for shared code.
+Run `dotnet tool restore` to make this tool available locally. The coverage gate
+uses the merged report with an 80% minimum line coverage and a 90% green indicator.
+Branch coverage and complexity are hidden because the merged report does not
+preserve reliable values for those metrics. Existing assembly coverage exclusions
+are unchanged.
+
 To see the CLI commands:
 
 ```shell

@@ -18,6 +18,7 @@ internal sealed class PifeonReceiver : IReceiver
     private const int ChunkSize = PeerMessageChannel.MaximumChunkSize;
 
     public event Action<long, long, string>? OnProgressChanged;
+    public event Action<TransferProgress>? OnTransferProgressChanged;
 
     public PifeonReceiver(IPeerMessageChannel peerChannel, ISession? session = null)
     {
@@ -66,10 +67,8 @@ internal sealed class PifeonReceiver : IReceiver
 
     public async Task ReceiveToDirectoryAsync(string destinationDirectory, CancellationToken ct = default)
     {
-        if (_manifest is null)
-        {
-            throw new InvalidOperationException("Call ConnectAndGetManifestAsync first to receive the manifest");
-        }
+        TransferManifest manifest = _manifest
+            ?? throw new InvalidOperationException("Call ConnectAndGetManifestAsync first to receive the manifest");
 
         _transferState.TransitionTo(TransferState.Transferring);
         try
@@ -77,9 +76,17 @@ internal sealed class PifeonReceiver : IReceiver
             string destinationRoot = EnsureDestinationRoot(destinationDirectory);
             var progress = new ReceiveProgress(0, 1);
 
-            foreach (TransferItemInfo item in _manifest.Items)
+            for (int itemIndex = 0; itemIndex < manifest.Items.Count; itemIndex++)
             {
-                progress = await ReceiveFileAsync(destinationRoot, item, progress, ct);
+                progress = await ReceiveFileAsync(itemIndex, manifest, destinationRoot, progress, ct);
+            }
+
+            if (manifest.Items.Count == 0)
+            {
+                OnTransferProgressChanged?.Invoke(new TransferProgress(
+                    0, 0, string.Empty, 0, 0, 0, manifest.TotalSizeBytes,
+                    IsFileCompleted: false,
+                    IsTransferCompleted: true));
             }
 
             _transferState.TransitionTo(TransferState.Completed);
@@ -110,11 +117,13 @@ internal sealed class PifeonReceiver : IReceiver
     }
 
     private async Task<ReceiveProgress> ReceiveFileAsync(
+        int itemIndex,
+        TransferManifest manifest,
         string destinationRoot,
-        TransferItemInfo item,
         ReceiveProgress progress,
         CancellationToken ct)
     {
+        TransferItemInfo item = manifest.Items[itemIndex];
         string filePath = ResolveDestinationPath(destinationRoot, item.RelativePath);
         string? fileDirectory = Path.GetDirectoryName(filePath);
         if (fileDirectory is not null)
@@ -132,6 +141,7 @@ internal sealed class PifeonReceiver : IReceiver
             options: FileOptions.Asynchronous | FileOptions.SequentialScan);
         long bytesRemaining = item.FileSize;
         long totalBytesReceived = progress.TotalBytes;
+        long fileBytesReceived = 0;
         long expectedSequence = progress.NextSequence;
 
         while (bytesRemaining > 0)
@@ -142,7 +152,18 @@ internal sealed class PifeonReceiver : IReceiver
 
             bytesRemaining -= chunk.Payload.Length;
             totalBytesReceived += chunk.Payload.Length;
-            OnProgressChanged?.Invoke(totalBytesReceived, _manifest!.TotalSizeBytes, item.RelativePath);
+            fileBytesReceived += chunk.Payload.Length;
+            OnProgressChanged?.Invoke(totalBytesReceived, manifest.TotalSizeBytes, item.RelativePath);
+            OnTransferProgressChanged?.Invoke(new TransferProgress(
+                itemIndex + 1,
+                manifest.TotalFiles,
+                item.RelativePath,
+                fileBytesReceived,
+                item.FileSize,
+                totalBytesReceived,
+                manifest.TotalSizeBytes,
+                fileBytesReceived == item.FileSize,
+                fileBytesReceived == item.FileSize && itemIndex == manifest.Items.Count - 1));
 
             await _peerChannel.SendMessageAsync(
                 new PeerNetworkMessage(
@@ -151,6 +172,20 @@ internal sealed class PifeonReceiver : IReceiver
                     ReadOnlyMemory<byte>.Empty),
                 ct);
             expectedSequence++;
+        }
+
+        if (item.FileSize == 0)
+        {
+            OnTransferProgressChanged?.Invoke(new TransferProgress(
+                itemIndex + 1,
+                manifest.TotalFiles,
+                item.RelativePath,
+                0,
+                0,
+                totalBytesReceived,
+                manifest.TotalSizeBytes,
+                IsFileCompleted: true,
+                IsTransferCompleted: itemIndex == manifest.Items.Count - 1));
         }
 
         return new ReceiveProgress(totalBytesReceived, expectedSequence);

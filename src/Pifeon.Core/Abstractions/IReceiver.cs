@@ -5,6 +5,11 @@ public interface IReceiver : IAsyncDisposable
     event Action<long, long, string>? OnProgressChanged;
 
     /// <summary>
+    /// Reports per-file and overall transfer progress. FileIndex is one-based.
+    /// </summary>
+    event Action<TransferProgress>? OnTransferProgressChanged;
+
+    /// <summary>
     /// Si connette al sender e riceve il manifest dei file in arrivo (singolo file o cartella).
     /// </summary>
     Task<TransferManifest> ConnectAndGetManifestAsync(string code, CancellationToken ct = default);

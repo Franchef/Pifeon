@@ -24,6 +24,7 @@ internal sealed class PifeonSender : ISender
 
     public event Action? OnReceiverJoined;
     public event Action<long, long, string>? OnProgressChanged;
+    public event Action<TransferProgress>? OnTransferProgressChanged;
 
     public PifeonSender(IPeerMessageChannel peerChannel, string code, PifeonSession? session = null)
     {
@@ -121,9 +122,17 @@ internal sealed class PifeonSender : ISender
         var progress = new SendProgress(0, 1);
         try
         {
-            foreach (TransferItem item in items)
+            for (int itemIndex = 0; itemIndex < items.Count; itemIndex++)
             {
-                progress = await SendFileAsync(item, buffer, progress, totalBytes, ct);
+                progress = await SendFileAsync(itemIndex, items, buffer, progress, totalBytes, ct);
+            }
+
+            if (items.Count == 0)
+            {
+                OnTransferProgressChanged?.Invoke(new TransferProgress(
+                    0, 0, string.Empty, 0, 0, 0, totalBytes,
+                    IsFileCompleted: false,
+                    IsTransferCompleted: true));
             }
         }
         finally
@@ -133,12 +142,14 @@ internal sealed class PifeonSender : ISender
     }
 
     private async Task<SendProgress> SendFileAsync(
-        TransferItem item,
+        int itemIndex,
+        List<TransferItem> items,
         byte[] buffer,
         SendProgress progress,
         long totalBytes,
         CancellationToken ct)
     {
+        TransferItem item = items[itemIndex];
         await using FileStream fileStream = new(
             item.FullPath,
             FileMode.Open,
@@ -152,6 +163,7 @@ internal sealed class PifeonSender : ISender
         }
 
         long totalBytesSent = progress.TotalBytes;
+        long fileBytesSent = 0;
         long sequenceNumber = progress.NextSequence;
         int bytesRead;
         while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, ChunkSize), ct)) > 0)
@@ -167,8 +179,33 @@ internal sealed class PifeonSender : ISender
             ValidateAcknowledgment(acknowledgment, sequenceNumber);
 
             totalBytesSent += bytesRead;
+            fileBytesSent += bytesRead;
             OnProgressChanged?.Invoke(totalBytesSent, totalBytes, item.RelativePath);
+            OnTransferProgressChanged?.Invoke(new TransferProgress(
+                itemIndex + 1,
+                items.Count,
+                item.RelativePath,
+                fileBytesSent,
+                item.FileSize,
+                totalBytesSent,
+                totalBytes,
+                fileBytesSent == item.FileSize,
+                fileBytesSent == item.FileSize && itemIndex == items.Count - 1));
             sequenceNumber++;
+        }
+
+        if (item.FileSize == 0)
+        {
+            OnTransferProgressChanged?.Invoke(new TransferProgress(
+                itemIndex + 1,
+                items.Count,
+                item.RelativePath,
+                0,
+                0,
+                totalBytesSent,
+                totalBytes,
+                IsFileCompleted: true,
+                IsTransferCompleted: itemIndex == items.Count - 1));
         }
 
         return new SendProgress(totalBytesSent, sequenceNumber);

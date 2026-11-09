@@ -7,7 +7,7 @@ using Pifeon.Core.Cryptography;
 
 namespace Pifeon.Core.Networking;
 
-public sealed class EncryptedTransportChannel : ITransportChannel
+internal sealed class EncryptedTransportChannel : ITransportChannel
 {
     private readonly ITransportChannel _transport;
     private readonly byte[] _sendKey;
@@ -37,12 +37,26 @@ public sealed class EncryptedTransportChannel : ITransportChannel
         await _sendLock.WaitAsync(ct);
         try
         {
-            byte[] plaintext = new byte[checked(data.Length + 8)];
-            BinaryPrimitives.WriteUInt64BigEndian(plaintext, _sendCounter);
-            data.CopyTo(plaintext.AsMemory(8));
-            byte[] encrypted = AesGcmEncryption.Encrypt(plaintext, _sendKey);
-            await _transport.SendAsync(encrypted, ct);
-            _sendCounter = checked(_sendCounter + 1);
+            int plaintextLength = checked(data.Length + sizeof(ulong));
+            int encryptedLength = AesGcmEncryption.GetEncryptedSize(plaintextLength);
+            byte[] plaintext = ArrayPool<byte>.Shared.Rent(plaintextLength);
+            byte[] encrypted = ArrayPool<byte>.Shared.Rent(encryptedLength);
+            try
+            {
+                BinaryPrimitives.WriteUInt64BigEndian(plaintext, _sendCounter);
+                data.CopyTo(plaintext.AsMemory(sizeof(ulong)));
+                AesGcmEncryption.Encrypt(
+                    plaintext.AsSpan(0, plaintextLength),
+                    _sendKey,
+                    encrypted.AsSpan(0, encryptedLength));
+                await _transport.SendAsync(encrypted.AsMemory(0, encryptedLength), ct);
+                _sendCounter = checked(_sendCounter + 1);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(encrypted, clearArray: true);
+                ArrayPool<byte>.Shared.Return(plaintext, clearArray: true);
+            }
         }
         finally
         {
@@ -54,26 +68,37 @@ public sealed class EncryptedTransportChannel : ITransportChannel
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         byte[] encrypted = ArrayPool<byte>.Shared.Rent(TcpTransportChannel.MaximumMessageSize);
+        byte[]? plaintext = null;
         try
         {
             int length = await _transport.ReceiveAsync(encrypted.AsMemory(0, TcpTransportChannel.MaximumMessageSize), ct);
-            byte[] plaintext = AesGcmEncryption.Decrypt(encrypted.AsSpan(0, length), _receiveKey);
-            if (plaintext.Length < 8 || BinaryPrimitives.ReadUInt64BigEndian(plaintext) != _receiveCounter)
+            int plaintextLength = AesGcmEncryption.GetPlainTextSize(length);
+            plaintext = ArrayPool<byte>.Shared.Rent(plaintextLength);
+            AesGcmEncryption.Decrypt(
+                encrypted.AsSpan(0, length),
+                _receiveKey,
+                plaintext.AsSpan(0, plaintextLength));
+            if (plaintextLength < sizeof(ulong)
+                || BinaryPrimitives.ReadUInt64BigEndian(plaintext) != _receiveCounter)
             {
                 throw new CryptographicException("Peer packet is replayed or out of order.");
             }
-            int payloadLength = plaintext.Length - 8;
+            int payloadLength = plaintextLength - sizeof(ulong);
             if (payloadLength > buffer.Length)
             {
                 throw new InvalidDataException("Encrypted peer message exceeds the receive limit.");
             }
 
-            plaintext.AsMemory(8).CopyTo(buffer);
+            plaintext.AsMemory(sizeof(ulong), payloadLength).CopyTo(buffer);
             _receiveCounter = checked(_receiveCounter + 1);
             return payloadLength;
         }
         finally
         {
+            if (plaintext is not null)
+            {
+                ArrayPool<byte>.Shared.Return(plaintext, clearArray: true);
+            }
             ArrayPool<byte>.Shared.Return(encrypted, clearArray: true);
         }
     }

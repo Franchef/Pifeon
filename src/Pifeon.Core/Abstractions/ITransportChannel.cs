@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Pifeon.Core.Abstractions;
 
-public interface ITransportChannel : IAsyncDisposable
+internal interface ITransportChannel : IAsyncDisposable
 {
     /// <summary>
     /// Statuto della connessione del canale.

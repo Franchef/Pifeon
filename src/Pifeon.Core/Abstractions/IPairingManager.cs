@@ -2,7 +2,7 @@
 
 namespace Pifeon.Core.Abstractions;
 
-public interface IPairingManager<TConnection>
+internal interface IPairingManager<TConnection>
 {
     /// <summary>
     /// Crea una nuova sessione generandone il codice unico.
@@ -18,6 +18,11 @@ public interface IPairingManager<TConnection>
     /// Recupera una sessione se presente.
     /// </summary>
     bool TryGetSession(string code, out PairingSession<TConnection>? session);
+
+    /// <summary>
+    /// Atomically reserves a session for the first receiver that presents its code.
+    /// </summary>
+    bool TryClaimSession(string code, out PairingSession<TConnection>? session);
 
     /// <summary>
     /// Rimuove una sessione e rilascia le risorse allocate.

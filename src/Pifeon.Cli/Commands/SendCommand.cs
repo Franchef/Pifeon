@@ -28,7 +28,9 @@ public sealed class SendCommand : AsyncCommand<SendSettings>
         List<TransferItem> items;
         try
         {
-            items = await FolderScanner.ScanPath(targetPath).ToListAsync(cancellationToken);
+            items = await FolderScanner
+                .ScanPath(targetPath, computeHash: false, cancellationToken)
+                .ToListAsync(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -77,7 +79,7 @@ public sealed class SendCommand : AsyncCommand<SendSettings>
 
         await using (sender)
         {
-            // 5. Display the 6-digit code
+            // 5. Display the temporary pairing code
             AnsiConsole.WriteLine();
             AnsiConsole.Write(new Panel(new Markup($"[bold green size=20]{sender.Code}[/]"))
             {

@@ -1,26 +1,24 @@
-using System.Text;
-using System.Text.Json;
 using Pifeon.Core.Abstractions;
-using Pifeon.Core.Exceptions;
 using Pifeon.Core.Networking;
-using Pifeon.Core.Signaling.Messages;
+using Pifeon.Core.Signaling;
+using Pifeon.Core.StateMachines;
 
 namespace Pifeon.Core.Services;
 
-public sealed class PifeonSession : ISenderSession, IReceiverSession
+internal sealed class PifeonSession : ISenderSession, IReceiverSession
 {
     private readonly IServerMessageChannel _serverChannel;
     private readonly IPeerMessageChannel _peerChannel;
     private readonly bool _isSenderSession;
+    private readonly ConnectionStateMachine _connectionState = new();
     private readonly TaskCompletionSource<bool> _connectedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private Task? _senderConnectionListenerTask;
+    private Task? _connectionTask;
     private readonly CancellationTokenSource _lifetimeCts = new(TimeSpan.FromMinutes(5));
     private bool _disposed;
-    private bool _closed;
 
     public string Code { get; private set; }
 
-    public bool IsConnected => !_closed && _connectedTcs.Task.IsCompletedSuccessfully;
+    public bool IsConnected => _connectionState.IsConnected;
 
     public event Action? OnReceiverJoined;
 
@@ -35,8 +33,9 @@ public sealed class PifeonSession : ISenderSession, IReceiverSession
         _isSenderSession = isSenderSession;
         Code = code;
 
-        if (!isSenderSession && peerChannel is not DirectPeerMessageChannel)
+        if (!isSenderSession && peerChannel is not IEstablishablePeerMessageChannel)
         {
+            _connectionState.TransitionTo(ConnectionState.Connected);
             _connectedTcs.TrySetResult(true);
         }
     }
@@ -68,7 +67,7 @@ public sealed class PifeonSession : ISenderSession, IReceiverSession
         var session = new PifeonSession(serverChannel, peerChannel, isSenderSession: false, code);
         try
         {
-            await session.InitializeReceiverAsync(code, ct);
+            session.InitializeReceiver(ct);
             return session;
         }
         catch
@@ -81,35 +80,11 @@ public sealed class PifeonSession : ISenderSession, IReceiverSession
     public async Task WaitUntilConnectedAsync(CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-
-        if (_isSenderSession)
-        {
-            StartSenderConnectionListener();
-            await _connectedTcs.Task.WaitAsync(ct);
-            return;
-        }
-
-        if (_peerChannel is DirectPeerMessageChannel)
-        {
-            await _connectedTcs.Task.WaitAsync(ct);
-            return;
-        }
-
-        if (IsConnected)
-        {
-            return;
-        }
-
-        while (!IsConnected)
-        {
-            ServerNetworkMessage message = await _serverChannel.ReceiveMessageAsync(ct);
-            HandleServerMessage(message);
-        }
-
+        StartConnectionListener();
         await _connectedTcs.Task.WaitAsync(ct);
     }
 
-    public async Task<ISender> GetSenderAsync(CancellationToken ct = default)
+    public Task<ISender> GetSenderAsync(CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -118,9 +93,8 @@ public sealed class PifeonSession : ISenderSession, IReceiverSession
             throw new InvalidOperationException("Sender is available only for a session created by the sender client.");
         }
 
-        StartSenderConnectionListener();
-        await Task.CompletedTask;
-        return new PifeonSender(_peerChannel, Code, this);
+        StartConnectionListener();
+        return Task.FromResult<ISender>(new PifeonSender(_peerChannel, Code, this));
     }
 
     public async Task<IReceiver> GetReceiverAsync(CancellationToken ct = default)
@@ -138,17 +112,15 @@ public sealed class PifeonSession : ISenderSession, IReceiverSession
 
     public async Task CloseAsync(CancellationToken ct = default)
     {
-        if (_closed)
+        if (!_connectionState.TryBeginClosing())
         {
             return;
         }
 
-        _closed = true;
-
         await _lifetimeCts.CancelAsync();
-        if (_senderConnectionListenerTask is not null)
+        if (_connectionTask is not null)
         {
-            await _senderConnectionListenerTask;
+            await _connectionTask;
         }
         try
         {
@@ -157,6 +129,7 @@ public sealed class PifeonSession : ISenderSession, IReceiverSession
         finally
         {
             await _serverChannel.CloseAsync(ct);
+            _connectionState.TransitionTo(ConnectionState.Closed);
         }
     }
 
@@ -192,148 +165,63 @@ public sealed class PifeonSession : ISenderSession, IReceiverSession
     private async Task InitializeSenderAsync(CancellationToken ct)
     {
         ServerNetworkMessage response = await _serverChannel.ReceiveMessageAsync(ct);
-        Code = ParseCodeCreatedResponse(response);
+        Code = SignalingProtocol.ParseCreatedCode(response);
 
-        StartSenderConnectionListener();
+        StartConnectionListener();
     }
 
-    private Task InitializeReceiverAsync(string code, CancellationToken ct)
+    private void InitializeReceiver(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        StartSenderConnectionListener();
-        return Task.CompletedTask;
+        StartConnectionListener();
     }
 
-    private void StartSenderConnectionListener()
+    private void StartConnectionListener()
     {
-        if ((!_isSenderSession && _peerChannel is not DirectPeerMessageChannel) || _senderConnectionListenerTask is not null)
+        if (!_isSenderSession && _peerChannel is not IEstablishablePeerMessageChannel || _connectionTask is not null)
         {
             return;
         }
 
-        _senderConnectionListenerTask = Task.Run(async () =>
-        {
-            try
-            {
-                if (_peerChannel is DirectPeerMessageChannel directChannel)
-                {
-                    await directChannel.EstablishAsync(_serverChannel, Code, _isSenderSession, _lifetimeCts.Token);
-                    await _serverChannel.CloseAsync(_lifetimeCts.Token);
-                    OnReceiverJoined?.Invoke();
-                    _connectedTcs.TrySetResult(true);
-                    return;
-                }
-                while (!_connectedTcs.Task.IsCompleted)
-                {
-                    ServerNetworkMessage message = await _serverChannel.ReceiveMessageAsync(_lifetimeCts.Token);
-                    HandleServerMessage(message);
-                }
-            }
-            catch (Exception ex)
-            {
-                _connectedTcs.TrySetException(ex);
-            }
-        });
+        _connectionState.TransitionTo(_isSenderSession
+            ? ConnectionState.WaitingForPeer
+            : ConnectionState.Establishing);
+
+        _connectionTask = RunConnectionAsync();
     }
 
-    private void HandleServerMessage(ServerNetworkMessage message)
-    {
-        if (message.Type == ServerNetworkMessageType.Abort)
-        {
-            ThrowFromErrorPayload(message.Payload.Span, Code);
-        }
-
-        string? type = TryReadMessageType(message.Payload.Span);
-
-        if (string.Equals(type, "RECEIVER_JOINED", StringComparison.OrdinalIgnoreCase)
-            || message.Type == ServerNetworkMessageType.IpExchanges)
-        {
-            // Fire the receiver joined event before marking as connected
-            OnReceiverJoined?.Invoke();
-            _connectedTcs.TrySetResult(true);
-            return;
-        }
-
-        if (string.Equals(type, "ERROR", StringComparison.OrdinalIgnoreCase))
-        {
-            ThrowFromErrorPayload(message.Payload.Span, Code);
-        }
-        throw new InvalidDataException($"Unexpected signaling message: {type}.");
-    }
-
-    private static string ParseCodeCreatedResponse(ServerNetworkMessage message)
-    {
-        string? type = TryReadMessageType(message.Payload.Span);
-
-        if (!string.Equals(type, "CODE_CREATED", StringComparison.OrdinalIgnoreCase))
-        {
-            if (string.Equals(type, "ERROR", StringComparison.OrdinalIgnoreCase) || message.Type == ServerNetworkMessageType.Abort)
-            {
-                ThrowFromErrorPayload(message.Payload.Span, code: string.Empty);
-            }
-
-            throw new InvalidOperationException("Unexpected signaling response while creating session.");
-        }
-
-        CodeCreatedResponse? response = JsonSerializer.Deserialize(
-            message.Payload.Span,
-            SignalingJsonContext.Default.CodeCreatedResponse);
-
-        if (response is null || string.IsNullOrWhiteSpace(response.Code))
-        {
-            throw new InvalidOperationException("Signaling server returned an invalid session code payload.");
-        }
-
-        return response.Code;
-    }
-
-    private static string? TryReadMessageType(ReadOnlySpan<byte> payload)
+    private async Task RunConnectionAsync()
     {
         try
         {
-            using JsonDocument document = JsonDocument.Parse(payload.ToArray());
-            return document.RootElement.TryGetProperty("type", out JsonElement typeElement)
-                ? typeElement.GetString()
-                : null;
+            if (_peerChannel is IEstablishablePeerMessageChannel establishableChannel)
+            {
+                if (_connectionState.State == ConnectionState.WaitingForPeer)
+                {
+                    _connectionState.TransitionTo(ConnectionState.Establishing);
+                }
+                PeerRole role = _isSenderSession ? PeerRole.Sender : PeerRole.Receiver;
+                await establishableChannel.EstablishAsync(_serverChannel, Code, role, _lifetimeCts.Token);
+                await _serverChannel.CloseAsync(_lifetimeCts.Token);
+                CompleteConnection();
+                return;
+            }
+
+            ServerNetworkMessage message = await _serverChannel.ReceiveMessageAsync(_lifetimeCts.Token);
+            SignalingProtocol.EnsureReceiverJoined(message, Code);
+            CompleteConnection();
         }
-        catch (JsonException)
+        catch (Exception ex)
         {
-            return null;
+            _connectionState.Fail();
+            _connectedTcs.TrySetException(ex);
         }
     }
 
-    private static void ThrowFromErrorPayload(ReadOnlySpan<byte> payload, string code)
+    private void CompleteConnection()
     {
-        ErrorResponse? error = null;
-
-        try
-        {
-            error = JsonSerializer.Deserialize(payload, SignalingJsonContext.Default.ErrorResponse);
-        }
-        catch (JsonException)
-        {
-            // Ignore malformed payload and fallback to generic exception.
-        }
-
-        string message = error?.Message ?? Encoding.UTF8.GetString(payload);
-
-        if (message.Contains("rate", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("too many", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("429", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new CreateSessionRateLimitedException(message);
-        }
-
-        if (message.Contains("not found", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("invalid", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("expired", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("404", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new SessionNotFoundException(code);
-        }
-
-        throw new InvalidOperationException(string.IsNullOrWhiteSpace(message)
-            ? "Signaling server returned an error."
-            : message);
+        OnReceiverJoined?.Invoke();
+        _connectionState.TransitionTo(ConnectionState.Connected);
+        _connectedTcs.TrySetResult(true);
     }
 }

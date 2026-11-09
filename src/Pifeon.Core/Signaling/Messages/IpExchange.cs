@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 namespace Pifeon.Core.Signaling.Messages;
 
 [ExcludeFromCodeCoverage]
-public record IpExchange
+internal sealed record IpExchange
 {
     public string Type { get; init; } = "IP_EXCHANGE";
     public bool IsSender { get; init; }

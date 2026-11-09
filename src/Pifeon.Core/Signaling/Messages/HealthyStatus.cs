@@ -3,4 +3,4 @@
 namespace Pifeon.Core.Signaling.Messages;
 
 [ExcludeFromCodeCoverage]
-public record HealthyStatus(string Status);
+internal sealed record HealthyStatus(string Status);

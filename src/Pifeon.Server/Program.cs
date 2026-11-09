@@ -1,7 +1,5 @@
 using System.Net.WebSockets;
 using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.AspNetCore.Mvc;
 using Pifeon.Core.Abstractions;
 using Pifeon.Core.Services;
 using Pifeon.Core.Signaling.Messages;
@@ -31,20 +29,11 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    // Rate limiting policy based on router public IP + individual device Client-Id
+    // Rate limiting is based only on the trusted remote endpoint. Client-supplied
+    // headers must never create independent brute-force budgets.
     options.AddPolicy(policyName: IpRateLimitPolicyName, httpContext =>
     {
-        string clientIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-        // If the client does not send the custom X-Pifeon-Client-Id header, use "anonymous"
-        string clientId = httpContext.Request.Headers["X-Pifeon-Client-Id"].ToString();
-        if (string.IsNullOrWhiteSpace(clientId))
-        {
-            clientId = "anonymous";
-        }
-
-        // Composite key: protects IP but distinguishes clients behind the same NAT
-        string partitionKey = $"{clientIp}:{clientId}";
+        string partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
         // Uses higher limits for testing, normal limits for production
         bool isTestEnvironment = builder.Environment.IsEnvironment("Test");
@@ -93,44 +82,52 @@ app.UseWebSockets(new WebSocketOptions
 // -------------------------------------------------------------------------
 // Route A: Create session for the Sender
 // -------------------------------------------------------------------------
-app.MapGet("/ws/session/create", async (HttpContext context, [FromServices]IPairingManager<WebSocket> manager) =>
+app.MapGet("/ws/session/create", HandleCreateSessionAsync)
+    .RequireRateLimiting(IpRateLimitPolicyName);
+
+// -------------------------------------------------------------------------
+// Route B: Receiver join using the temporary pairing code in the URL
+// -------------------------------------------------------------------------
+app.MapGet("/ws/session/join/{code}", HandleJoinSessionAsync)
+    .RequireRateLimiting(IpRateLimitPolicyName);
+
+// Health check endpoint per Aspire / Docker
+app.MapGet("/health", HandleHealthAsync);
+
+await app.RunAsync();
+
+static async Task HandleCreateSessionAsync(HttpContext context)
 {
     if (!context.WebSockets.IsWebSocketRequest)
     {
-        return Results.BadRequest(new { error = "A WebSocket connection is required." });
+        await Results.BadRequest(new { error = "A WebSocket connection is required." }).ExecuteAsync(context);
+        return;
     }
 
+    IPairingManager<WebSocket> manager = context.RequestServices.GetRequiredService<IPairingManager<WebSocket>>();
     using WebSocket webSocket = await context.WebSockets.AcceptWebSocketAsync();
     await WebSocketHandler.HandleSenderAsync(webSocket, manager, context.RequestAborted);
+}
 
-    return Results.Empty;
-}).RequireRateLimiting(IpRateLimitPolicyName);
-
-// -------------------------------------------------------------------------
-// Route B: Receiver join using 6-digit code in the URL
-// -------------------------------------------------------------------------
-app.MapGet("/ws/session/join/{code}", async (string code, HttpContext context, [FromServices]IPairingManager<WebSocket> manager) =>
+static async Task HandleJoinSessionAsync(HttpContext context)
 {
     if (!context.WebSockets.IsWebSocketRequest)
     {
-        return Results.BadRequest(new { error = "A WebSocket connection is required." });
+        await Results.BadRequest(new { error = "A WebSocket connection is required." }).ExecuteAsync(context);
+        return;
     }
 
-    // Immediate HTTP 404 response before allocating the WebSocket if code does not exist
-    if (!manager.TryGetSession(code, out PairingSession<WebSocket>? session) || session == null)
+    string code = context.Request.RouteValues["code"]?.ToString() ?? string.Empty;
+    IPairingManager<WebSocket> manager = context.RequestServices.GetRequiredService<IPairingManager<WebSocket>>();
+    if (!manager.TryClaimSession(code, out PairingSession<WebSocket>? session) || session is null)
     {
-        return Results.NotFound(new { error = "Session code not found or expired." });
+        await Results.NotFound(new { error = "Session code not found or expired." }).ExecuteAsync(context);
+        return;
     }
 
     using WebSocket webSocket = await context.WebSockets.AcceptWebSocketAsync();
     await WebSocketHandler.HandleReceiverAsync(code, webSocket, session, manager, context.RequestAborted);
+}
 
-    return Results.Empty;
-}).RequireRateLimiting(IpRateLimitPolicyName);
-
-// Health check endpoint per Aspire / Docker
-app
-    .MapGet("/health", () => Results.Ok(new HealthyStatus("Healthy")))
-    .Produces<HealthyStatus>();
-
-await app.RunAsync();
+static Task HandleHealthAsync(HttpContext context) =>
+    Results.Ok(new HealthyStatus("Healthy")).ExecuteAsync(context);

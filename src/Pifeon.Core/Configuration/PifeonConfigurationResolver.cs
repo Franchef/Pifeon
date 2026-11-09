@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Pifeon.Core.Configuration;
 
-public static partial class PifeonConfigurationResolver
+internal static partial class PifeonConfigurationResolver
 {
     public const string EnvSignalingUrl = "PIFEON_SIGNALING_URL";
     public const string DefaultSignalingUrl = "wss://signaling.pifeon.io/ws/pairing";

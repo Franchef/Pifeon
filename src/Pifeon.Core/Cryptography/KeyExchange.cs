@@ -2,7 +2,7 @@
 
 namespace Pifeon.Core.Cryptography;
 
-public sealed class KeyExchange : IDisposable
+internal sealed class KeyExchange : IDisposable
 {
     private readonly ECDiffieHellman _ecdh;
 

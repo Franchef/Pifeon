@@ -11,7 +11,7 @@ public class PairingManagerTests
     #region 1. Formato e Univocità dei Codici
 
     [Fact]
-    public async Task CreateSessionAsync_ShouldReturnSixDigitNumericCode()
+    public async Task CreateSessionAsync_ShouldReturnHighEntropyUnambiguousCode()
     {
         // Arrange
         var sut = new PairingManager<string>();
@@ -21,9 +21,7 @@ public class PairingManagerTests
 
         // Assert
         Assert.NotNull(code);
-        Assert.Equal(6, code.Length);
-        Assert.True(int.TryParse(code, out int numericCode), "Il codice deve essere numerico.");
-        Assert.InRange(numericCode, 100000, 999999);
+        Assert.Matches("^[2-9A-HJ-NP-Z]{10}$", code);
     }
 
     [Fact]
@@ -165,6 +163,18 @@ public class PairingManagerTests
         // Assert
         Assert.True(firstJoin);
         Assert.False(secondJoin, "A second join attempt on an already paired session must fail.");
+    }
+
+    [Fact]
+    public async Task TryClaimSession_ShouldAllowOnlyOneConcurrentReceiver()
+    {
+        var sut = new PairingManager<string>();
+        string code = await sut.CreateSessionAsync("Sender_Conn_1", TestContext.Current.CancellationToken);
+
+        bool[] claims = await Task.WhenAll(Enumerable.Range(0, 20)
+            .Select(attempt => Task.Run(() => sut.TryClaimSession(code, out _), TestContext.Current.CancellationToken)));
+
+        Assert.Single(claims, claimed => claimed);
     }
 
     #endregion

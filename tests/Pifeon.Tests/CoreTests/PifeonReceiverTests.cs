@@ -87,10 +87,11 @@ public sealed class PifeonReceiverTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData(PeerNetworkMessageType.ChunkData)]
-    [InlineData(PeerNetworkMessageType.ChunkAck)]
-    public async Task GetManifest_ShouldRejectUnexpectedMessage(PeerNetworkMessageType type)
+    [InlineData((int)PeerNetworkMessageType.ChunkData)]
+    [InlineData((int)PeerNetworkMessageType.ChunkAck)]
+    public async Task GetManifest_ShouldRejectUnexpectedMessage(int messageType)
     {
+        var type = (PeerNetworkMessageType)messageType;
         _incoming.Enqueue(new PeerNetworkMessage(type, 1, "wrong"u8.ToArray()));
         InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _receiver.ConnectAndGetManifestAsync("123456", TestContext.Current.CancellationToken));
@@ -170,6 +171,30 @@ public sealed class PifeonReceiverTests : IAsyncLifetime
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             _receiver.ReceiveToDirectoryAsync(_destination, TestContext.Current.CancellationToken));
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(_destination)!, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Receive_ShouldRejectLinkedDirectoryThatEscapesDestination()
+    {
+        string root = Path.GetDirectoryName(_destination)!;
+        string outside = Path.Combine(root, "outside");
+        string linkedDirectory = Path.Combine(_destination, "linked");
+        Directory.CreateDirectory(_destination);
+        Directory.CreateDirectory(outside);
+        try
+        {
+            Directory.CreateSymbolicLink(linkedDirectory, outside);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            Assert.Skip($"Symbolic links are unavailable in this test environment: {exception.Message}");
+        }
+
+        await SetManifestAsync(new TransferItemInfo("linked/escaped.bin", 0));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            _receiver.ReceiveToDirectoryAsync(_destination, TestContext.Current.CancellationToken));
+        Assert.False(File.Exists(Path.Combine(outside, "escaped.bin")));
     }
 
     [Fact]

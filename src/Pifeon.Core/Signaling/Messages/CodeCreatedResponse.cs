@@ -3,4 +3,4 @@
 namespace Pifeon.Core.Signaling.Messages;
 
 [ExcludeFromCodeCoverage]
-public record CodeCreatedResponse(string Type, string Code);
+internal sealed record CodeCreatedResponse(string Type, string Code);

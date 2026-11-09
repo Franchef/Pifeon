@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Pifeon.Core.IO;
 
-public static class FileHasher
+internal static class FileHasher
 {
     /// <summary>
     /// Calculates the SHA-256 hash of a file in async streaming mode.

@@ -42,6 +42,21 @@ public class CryptographyTests
         Assert.NotEqual(originalData, encryptedPackage);
         Assert.Equal(originalData, decryptedData);
     }
+
+    [Fact]
+    public void AesGcmEncryption_DestinationBuffers_ShouldReturnOriginalData()
+    {
+        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] originalData = "Destination buffer payload"u8.ToArray();
+        byte[] encrypted = new byte[AesGcmEncryption.GetEncryptedSize(originalData.Length)];
+        byte[] decrypted = new byte[originalData.Length];
+
+        AesGcmEncryption.Encrypt(originalData, key, encrypted);
+        int written = AesGcmEncryption.Decrypt(encrypted, key, decrypted);
+
+        Assert.Equal(originalData.Length, written);
+        Assert.Equal(originalData, decrypted);
+    }
     [Fact]
     public void AesGcmEncryption_DecryptWithTamperedData_ShouldThrowCryptographicException()
     {

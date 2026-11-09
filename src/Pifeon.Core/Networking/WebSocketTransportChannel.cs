@@ -6,7 +6,7 @@ using Pifeon.Core.Abstractions;
 
 namespace Pifeon.Core.Networking;
 
-public sealed class WebSocketTransportChannel : ITransportChannel
+internal sealed class WebSocketTransportChannel : ITransportChannel
 {
     private readonly WebSocket _webSocket;
     private readonly bool _ownsWebSocket;

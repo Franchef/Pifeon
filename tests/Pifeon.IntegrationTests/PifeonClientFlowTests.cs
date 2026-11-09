@@ -71,14 +71,14 @@ public sealed class PifeonClientFlowTests : IClassFixture<DirectTransferServerFi
     }
 
     [Fact]
-    public async Task CreateSession_ShouldReturnNumericCodeBeforePeerConnects()
+    public async Task CreateSession_ShouldReturnHighEntropyCodeBeforePeerConnects()
     {
         using CancellationTokenSource cts = CreateTimeout();
         await using PifeonServer client = CreateClient();
         await using ISenderSession session = await client.CreateSessionHandleAsync(cts.Token);
         ISender sender = await session.GetSenderAsync(cts.Token);
 
-        Assert.Matches("^[0-9]{6}$", session.Code);
+        Assert.Matches("^[2-9A-HJ-NP-Z]{10}$", session.Code);
         Assert.Equal(session.Code, await sender.InitializeSessionAsync(cts.Token));
         Assert.False(session.IsConnected);
     }

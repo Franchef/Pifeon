@@ -3,14 +3,18 @@ using Pifeon.Core.Abstractions;
 
 namespace Pifeon.Core.IO;
 
-public static class FolderScanner
+internal static class FolderScanner
 {
-    public static async IAsyncEnumerable<TransferItem> ScanPath(string path)
+    public static async IAsyncEnumerable<TransferItem> ScanPath(
+        string path,
+        bool computeHash = true,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         if (File.Exists(path))
         {
             var fileInfo = new FileInfo(path);
-            string hash = await ComputeFileHash(fileInfo.FullName);
+            string hash = computeHash ? await ComputeFileHash(fileInfo.FullName, ct) : string.Empty;
             yield return new TransferItem(fileInfo.Name, fileInfo.Length, fileInfo.FullName, hash);
         }
         else if (Directory.Exists(path))
@@ -18,8 +22,9 @@ public static class FolderScanner
             var rootDir = new DirectoryInfo(path);
             foreach (FileInfo file in rootDir.EnumerateFiles("*", SearchOption.AllDirectories))
             {
+                ct.ThrowIfCancellationRequested();
                 string relativePath = Path.GetRelativePath(rootDir.FullName, file.FullName);
-                string hash = await ComputeFileHash(file.FullName);
+                string hash = computeHash ? await ComputeFileHash(file.FullName, ct) : string.Empty;
                 yield return new TransferItem(relativePath, file.Length, file.FullName, hash);
             }
         }
@@ -32,10 +37,16 @@ public static class FolderScanner
     /// <summary>
     /// Calcola l'hash SHA-256 del file in streaming, senza caricare l'intero file in memoria RAM.
     /// </summary>
-    private static async Task<string> ComputeFileHash(string filePath)
+    private static async Task<string> ComputeFileHash(string filePath, CancellationToken ct)
     {
-        using FileStream stream = File.OpenRead(filePath);
-        byte[] hashBytes = await SHA256.HashDataAsync(stream);
+        await using FileStream stream = new(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            options: FileOptions.Asynchronous | FileOptions.SequentialScan);
+        byte[] hashBytes = await SHA256.HashDataAsync(stream, ct);
         return Convert.ToHexStringLower(hashBytes); // Output hex string (es. "a3f5...")
     }
 }

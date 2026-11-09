@@ -3,4 +3,4 @@
 namespace Pifeon.Core.Signaling.Messages;
 
 [ExcludeFromCodeCoverage]
-public record ErrorResponse(string Type, string Message);
+internal sealed record ErrorResponse(string Type, string Message);

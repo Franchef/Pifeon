@@ -29,7 +29,7 @@ public interface IPifeonServer : IAsyncDisposable, IDisposable
     Task<ISender> CreateSessionAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Si unisce a una sessione esistente tramite il codice a 6 cifre e restituisce il ricevitore.
+    /// Si unisce a una sessione esistente tramite il codice temporaneo e restituisce il ricevitore.
     /// Compatibility API: prefer JoinSessionHandleAsync.
     /// </summary>
     Task<IReceiver> JoinSessionAsync(string code, CancellationToken ct = default);

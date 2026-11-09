@@ -8,8 +8,10 @@ using Pifeon.Core.Signaling.Models;
 
 namespace Pifeon.Core.Services;
 
-public class PairingManager<TConnection> : IPairingManager<TConnection>
+internal sealed class PairingManager<TConnection> : IPairingManager<TConnection>
 {
+    private const int PairingCodeLength = 10;
+    private const string PairingCodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private readonly ConcurrentDictionary<string, PairingSession<TConnection>> _sessions = new();
     private readonly TimeSpan _defaultTimeout;
 
@@ -20,55 +22,63 @@ public class PairingManager<TConnection> : IPairingManager<TConnection>
 
     public Task<string> CreateSessionAsync(TConnection senderConnection, CancellationToken ct = default)
     {
-        string code;
-        var cts = new CancellationTokenSource(_defaultTimeout);
-
-        // Generazione sicura del codice a 6 cifre
-        do
+        ct.ThrowIfCancellationRequested();
+        while (true)
         {
-            code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
-        }
-        while (_sessions.ContainsKey(code));
-
-        var session = new PairingSession<TConnection>(
-            code,
-            senderConnection,
-            new TaskCompletionSource<TConnection>(TaskCreationOptions.RunContinuationsAsynchronously),
-            cts
-        );
-
-        while (!_sessions.TryAdd(code, session))
-        {
-            code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
-            session = new PairingSession<TConnection>(
+            string code = CreatePairingCode();
+            var cts = new CancellationTokenSource(_defaultTimeout);
+            var session = new PairingSession<TConnection>(
                 code,
                 senderConnection,
                 new TaskCompletionSource<TConnection>(TaskCreationOptions.RunContinuationsAsynchronously),
-                cts
-            );
+                cts);
+            if (!_sessions.TryAdd(code, session))
+            {
+                session.Dispose();
+                continue;
+            }
+
+            cts.Token.Register(() => RemoveSession(code));
+            return Task.FromResult(code);
         }
-
-        // Auto-pulizia allo scadere del timeout
-        cts.Token.Register(() => RemoveSession(code));
-
-        return Task.FromResult(code);
     }
 
-    public async Task<bool> TryJoinSessionAsync(string code, TConnection receiverConnection, CancellationToken ct = default)
+    private static string CreatePairingCode()
     {
-        if (!_sessions.TryGetValue(code, out PairingSession<TConnection>? session))
+        Span<char> code = stackalloc char[PairingCodeLength];
+        for (int index = 0; index < code.Length; index++)
         {
-            return false;
+            code[index] = PairingCodeAlphabet[RandomNumberGenerator.GetInt32(PairingCodeAlphabet.Length)];
         }
 
-        // Notifica il completamento dell'accoppiamento al sender
-        bool setSucceeded = session.ReceiverConnected.TrySetResult(receiverConnection);
-        return await Task.FromResult(setSucceeded);
+        return new string(code);
+    }
+
+    public Task<bool> TryJoinSessionAsync(string code, TConnection receiverConnection, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!TryClaimSession(code, out PairingSession<TConnection>? session) || session is null)
+        {
+            return Task.FromResult(false);
+        }
+
+        return Task.FromResult(session.ReceiverConnected.TrySetResult(receiverConnection));
     }
 
     public bool TryGetSession(string code, out PairingSession<TConnection>? session)
     {
         return _sessions.TryGetValue(code, out session);
+    }
+
+    public bool TryClaimSession(string code, out PairingSession<TConnection>? session)
+    {
+        if (!_sessions.TryGetValue(code, out session) || !session.TryClaimReceiver())
+        {
+            session = null;
+            return false;
+        }
+
+        return true;
     }
 
     public void RemoveSession(string code)

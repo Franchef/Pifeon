@@ -8,7 +8,7 @@ using Pifeon.Core.Signaling.Models;
 
 namespace Pifeon.Server;
 
-public static class WebSocketHandler
+internal static class WebSocketHandler
 {
     /// <summary>
     /// Handles the Sender's WebSocket connection on the /ws/session/create route
@@ -18,7 +18,7 @@ public static class WebSocketHandler
         IPairingManager<WebSocket> manager,
         CancellationToken ct)
     {
-        // 1. The manager creates the session and returns the unique 6-digit code
+        // 1. The manager creates the session and returns a high-entropy temporary code
         string code = await manager.CreateSessionAsync(webSocket, ct);
 
         // 2. We immediately send the generated code to the Sender

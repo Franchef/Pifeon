@@ -5,7 +5,6 @@
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<InvariantGlobalization>true</InvariantGlobalization>
-		<PublishAot>true</PublishAot>
 		<!-- Garantisce che il codice generato dai Source Generators contenga gli attributi [GeneratedCode] riconosciuti da VS -->
 		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
 		<CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)GeneratedFiles</CompilerGeneratedFilesOutputPath>
@@ -13,6 +12,10 @@
          i file emessi con [ExcludeFromCodeCoverage] / [GeneratedCode] -->
 		<InjectAttributeForGeneratedCode>true</InjectAttributeForGeneratedCode>
 	</PropertyGroup>
+	<!--<PropertyGroup>
+		<PublishAot>true</PublishAot>
+		<VerifyReferenceAotCompatibility>true</VerifyReferenceAotCompatibility>
+	</PropertyGroup>-->
 	<!-- Esclude automaticamente i file di integrazione generati da OpenAPI e Minimal API -->
 	<ItemGroup>
 		<AssemblyAttribute Include="System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute" />

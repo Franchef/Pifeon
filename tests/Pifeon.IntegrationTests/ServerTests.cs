@@ -340,12 +340,14 @@ public class RateLimitIntegrationTests : IClassFixture<ProductionRateLimitServer
     }
 
     [Fact]
-    public async Task SenderTryCreateTooMuchSessionInRateLimit_ShouldFailWith429()
+    public async Task SenderRotatingClientIds_ShouldStillShareIpRateLimitAndFailWith429()
     {
         using CancellationTokenSource cts = CreateTimeoutCancellationTokenSource();
         Exception? exception = null;
         WebSocketClient wsClient = _factory.Server.CreateWebSocketClient();
-        wsClient.ConfigureRequest = req => req.Headers["X-Pifeon-Client-Id"] = nameof(SenderTryCreateTooMuchSessionInRateLimit_ShouldFailWith429);
+        int clientId = 0;
+        wsClient.ConfigureRequest = req =>
+            req.Headers["X-Pifeon-Client-Id"] = $"rotating-client-{Interlocked.Increment(ref clientId)}";
 
         // Production rate limit: 5 requests per minute
         // Try 6 times - first 5 should succeed, 6th should fail with 429

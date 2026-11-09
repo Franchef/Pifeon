@@ -2,7 +2,7 @@
 
 namespace Pifeon.Core.Abstractions;
 
-public interface IServerMessageChannel : IAsyncDisposable
+internal interface IServerMessageChannel : IAsyncDisposable
 {
     /// <summary>
     /// Statuto della connessione di rete sottostante.

@@ -6,14 +6,15 @@ using Pifeon.Core.IO;
 using Pifeon.Core.Networking;
 using Pifeon.Core.Signaling;
 using Pifeon.Core.Signaling.Messages;
+using Pifeon.Core.StateMachines;
 
 namespace Pifeon.Core.Services;
 
-public class PifeonSender : ISender
+internal sealed class PifeonSender : ISender
 {
     private readonly IPeerMessageChannel _peerChannel;
-    private readonly ISignalingService? _legacySignalingService;
     private readonly PifeonSession? _session;
+    private readonly TransferStateMachine _transferState = new();
     private bool _disposed;
 
     private const int ChunkSize = PeerMessageChannel.MaximumChunkSize;
@@ -24,12 +25,6 @@ public class PifeonSender : ISender
     public event Action? OnReceiverJoined;
     public event Action<long, long, string>? OnProgressChanged;
 
-    public PifeonSender(IPeerMessageChannel peerChannel, string code)
-    {
-        _peerChannel = peerChannel ?? throw new ArgumentNullException(nameof(peerChannel));
-        Code = code ?? throw new ArgumentNullException(nameof(code));
-    }
-
     public PifeonSender(IPeerMessageChannel peerChannel, string code, PifeonSession? session = null)
     {
         _peerChannel = peerChannel ?? throw new ArgumentNullException(nameof(peerChannel));
@@ -38,27 +33,15 @@ public class PifeonSender : ISender
         session?.OnReceiverJoined += () => OnReceiverJoined?.Invoke();
     }
 
-    public PifeonSender(ISignalingService signalingService, ITransportChannel dataChannel)
+    public Task<string> InitializeSessionAsync(CancellationToken ct = default)
     {
-        _legacySignalingService = signalingService ?? throw new ArgumentNullException(nameof(signalingService));
-        _peerChannel = new PeerMessageChannel(dataChannel ?? throw new ArgumentNullException(nameof(dataChannel)));
-
-        _legacySignalingService.OnReceiverJoined += () => OnReceiverJoined?.Invoke();
-    }
-
-    public async Task<string> InitializeSessionAsync(CancellationToken ct = default)
-    {
+        ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(Code))
         {
-            if (_legacySignalingService is null)
-            {
-                throw new InvalidOperationException("Session code is not available for this sender.");
-            }
-
-            Code = await _legacySignalingService.CreateSessionAsync(ct);
+            throw new InvalidOperationException("Session code is not available for this sender.");
         }
 
-        return Code;
+        return Task.FromResult(Code);
     }
 
     public async Task SendAsync(string sourcePath, CancellationToken ct = default)
@@ -68,82 +51,28 @@ public class PifeonSender : ISender
             throw new InvalidOperationException("Initialize session first using InitializeSessionAsync().");
         }
 
-        // 1. Scan the local path (file or folder with SHA-256 calculation)
-        List<TransferItem> items = await FolderScanner.ScanPath(sourcePath).ToListAsync(ct);
-        long totalBytes = items.Sum(i => i.FileSize);
-
-        // 2. For legacy compatibility wait for signaling; in session mode the connection is ready
-        if (_legacySignalingService is not null)
+        _transferState.TransitionTo(TransferState.Preparing);
+        try
         {
-            await _legacySignalingService.WaitForReceiverAsync(ct);
-        }
-        if (_session is not null)
-        {
-            await _session.WaitUntilConnectedAsync(ct);
-        }
+            List<TransferItem> items = await FolderScanner.ScanPath(sourcePath, computeHash: false, ct).ToListAsync(ct);
+            long totalBytes = items.Sum(i => i.FileSize);
 
-        // 3. Send manifest
-        TransferManifest manifest = new TransferManifest(
-            items.Count,
-            totalBytes,
-            [.. items.Select(i => new TransferItemInfo(i.RelativePath, i.FileSize))]
-        );
-
-        string manifestJson = JsonSerializer.Serialize(manifest, SignalingJsonContext.Default.TransferManifest);
-        byte[] manifestPayload = System.Text.Encoding.UTF8.GetBytes(manifestJson);
-
-        PeerNetworkMessage manifestMessage = new PeerNetworkMessage(
-            PeerNetworkMessageType.Manifest,
-            0,
-            manifestPayload
-        );
-
-        await _peerChannel.SendMessageAsync(manifestMessage, ct);
-
-        // 4. Stream chunks for each file
-        long totalBytesSent = 0;
-        long sequenceNumber = 1;
-
-        foreach (TransferItem item in items)
-        {
-            using FileStream fileStream = new FileStream(item.FullPath, FileMode.Open, FileAccess.Read);
+            if (_session is not null)
             {
-                if (fileStream.Length != item.FileSize)
-                {
-                    throw new IOException($"File size changed after scanning: {item.RelativePath}.");
-                }
-                byte[] buffer = new byte[ChunkSize];
-                int bytesRead;
-
-                while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(), ct)) > 0)
-                {
-                    // Send chunk
-                    PeerNetworkMessage chunkMessage = new PeerNetworkMessage(
-                        PeerNetworkMessageType.ChunkData,
-                        sequenceNumber,
-                        buffer.AsMemory(0, bytesRead)
-                    );
-
-                    await _peerChannel.SendMessageAsync(chunkMessage, ct);
-
-                    // Wait for acknowledgment
-                    PeerNetworkMessage ackMessage = await _peerChannel.ReceiveMessageAsync(ct);
-                    if (ackMessage.Type != PeerNetworkMessageType.ChunkAck)
-                    {
-                        throw new InvalidOperationException($"Expected ChunkAck, received {ackMessage.Type}");
-                    }
-                    if (ackMessage.SequenceNumber != sequenceNumber)
-                    {
-                        throw new InvalidDataException($"Expected acknowledgment for chunk {sequenceNumber}, received {ackMessage.SequenceNumber}.");
-                    }
-
-                    // Update progress
-                    totalBytesSent += bytesRead;
-                    OnProgressChanged?.Invoke(totalBytesSent, totalBytes, item.RelativePath);
-
-                    sequenceNumber++;
-                }
+                _transferState.TransitionTo(TransferState.WaitingForConnection);
+                await _session.WaitUntilConnectedAsync(ct);
             }
+
+            _transferState.TransitionTo(TransferState.Transferring);
+            await SendManifestAsync(items, totalBytes, ct);
+            await SendFilesAsync(items, totalBytes, ct);
+
+            _transferState.TransitionTo(TransferState.Completed);
+        }
+        catch
+        {
+            _transferState.Fail();
+            throw;
         }
     }
 
@@ -161,10 +90,105 @@ public class PifeonSender : ISender
                 await _peerChannel.DisposeAsync();
             }
 
-            if (_legacySignalingService is not null)
-            {
-                await _legacySignalingService.DisposeAsync();
-            }
+            _transferState.Dispose();
         }
     }
+
+    private async Task SendManifestAsync(
+        List<TransferItem> items,
+        long totalBytes,
+        CancellationToken ct)
+    {
+        TransferManifest manifest = new(
+            items.Count,
+            totalBytes,
+            [.. items.Select(item => new TransferItemInfo(item.RelativePath, item.FileSize))]);
+        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
+            manifest,
+            SignalingJsonContext.Default.TransferManifest);
+
+        await _peerChannel.SendMessageAsync(
+            new PeerNetworkMessage(PeerNetworkMessageType.Manifest, 0, payload),
+            ct);
+    }
+
+    private async Task SendFilesAsync(
+        List<TransferItem> items,
+        long totalBytes,
+        CancellationToken ct)
+    {
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(ChunkSize);
+        var progress = new SendProgress(0, 1);
+        try
+        {
+            foreach (TransferItem item in items)
+            {
+                progress = await SendFileAsync(item, buffer, progress, totalBytes, ct);
+            }
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+        }
+    }
+
+    private async Task<SendProgress> SendFileAsync(
+        TransferItem item,
+        byte[] buffer,
+        SendProgress progress,
+        long totalBytes,
+        CancellationToken ct)
+    {
+        await using FileStream fileStream = new(
+            item.FullPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: ChunkSize,
+            options: FileOptions.Asynchronous | FileOptions.SequentialScan);
+        if (fileStream.Length != item.FileSize)
+        {
+            throw new IOException($"File size changed after scanning: {item.RelativePath}.");
+        }
+
+        long totalBytesSent = progress.TotalBytes;
+        long sequenceNumber = progress.NextSequence;
+        int bytesRead;
+        while ((bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, ChunkSize), ct)) > 0)
+        {
+            await _peerChannel.SendMessageAsync(
+                new PeerNetworkMessage(
+                    PeerNetworkMessageType.ChunkData,
+                    sequenceNumber,
+                    buffer.AsMemory(0, bytesRead)),
+                ct);
+
+            PeerNetworkMessage acknowledgment = await _peerChannel.ReceiveMessageAsync(ct);
+            ValidateAcknowledgment(acknowledgment, sequenceNumber);
+
+            totalBytesSent += bytesRead;
+            OnProgressChanged?.Invoke(totalBytesSent, totalBytes, item.RelativePath);
+            sequenceNumber++;
+        }
+
+        return new SendProgress(totalBytesSent, sequenceNumber);
+    }
+
+    private static void ValidateAcknowledgment(
+        PeerNetworkMessage acknowledgment,
+        long expectedSequence)
+    {
+        if (acknowledgment.Type != PeerNetworkMessageType.ChunkAck)
+        {
+            throw new InvalidOperationException($"Expected ChunkAck, received {acknowledgment.Type}");
+        }
+
+        if (acknowledgment.SequenceNumber != expectedSequence)
+        {
+            throw new InvalidDataException(
+                $"Expected acknowledgment for chunk {expectedSequence}, received {acknowledgment.SequenceNumber}.");
+        }
+    }
+
+    private readonly record struct SendProgress(long TotalBytes, long NextSequence);
 }

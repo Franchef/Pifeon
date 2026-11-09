@@ -13,7 +13,7 @@ public interface ISender : IAsyncDisposable
     event Action<long, long, string>? OnProgressChanged;
 
     /// <summary>
-    /// Inizializza la sessione sul server di segnalazione e restituisce il codice a 6 cifre.
+    /// Inizializza la sessione sul server di segnalazione e restituisce il codice temporaneo.
     /// </summary>
     Task<string> InitializeSessionAsync(CancellationToken ct = default);
 

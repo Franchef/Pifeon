@@ -4,7 +4,7 @@ using Pifeon.Core.Abstractions;
 
 namespace Pifeon.Core.Networking;
 
-public sealed class TcpTransportChannel(TcpClient client) : ITransportChannel
+internal sealed class TcpTransportChannel(TcpClient client) : ITransportChannel
 {
     public const int MaximumMessageSize = 4 * 1024 * 1024;
     private readonly NetworkStream _stream = client.GetStream();

@@ -1,7 +1,7 @@
 namespace Pifeon.Core.Configuration;
 
 
-public record PifeonServerConfiguration
+internal sealed record PifeonServerConfiguration
 {
     public int SessionTimeoutSeconds { get; init; } = 300; // Default session timeout in seconds
 }

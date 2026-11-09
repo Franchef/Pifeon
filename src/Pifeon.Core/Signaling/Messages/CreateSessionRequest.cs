@@ -6,4 +6,4 @@ using System.Text;
 namespace Pifeon.Core.Signaling.Messages;
 
 [ExcludeFromCodeCoverage]
-public record CreateSessionRequest(string Action = "CREATE");
+internal sealed record CreateSessionRequest(string Action = "CREATE");

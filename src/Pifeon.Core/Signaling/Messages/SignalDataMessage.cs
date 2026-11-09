@@ -3,4 +3,4 @@
 namespace Pifeon.Core.Signaling.Messages;
 
 [ExcludeFromCodeCoverage]
-public record SignalDataMessage(string Type, string Payload);
+internal sealed record SignalDataMessage(string Type, string Payload);

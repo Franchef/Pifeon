@@ -22,7 +22,7 @@ public class PairingManagerTests
     }
 
     [Fact]
-    public async Task CreateSession_ShouldReturnSixDigitCodeAsync()
+    public async Task CreateSession_ShouldReturnHighEntropyCodeAsync()
     {
         // Arrange
         PairingManager<bool> sut = new();
@@ -31,8 +31,7 @@ public class PairingManagerTests
         string code = await sut.CreateSessionAsync(true, TestContext.Current.CancellationToken);
 
         // Assert
-        Assert.True(int.TryParse(code, out int numericCode), "Il codice deve essere numerico.");
-        Assert.InRange(numericCode, 100000, 999999);
+        Assert.Matches("^[2-9A-HJ-NP-Z]{10}$", code);
     }
 
     [Fact]

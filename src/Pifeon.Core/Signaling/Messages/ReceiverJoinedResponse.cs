@@ -3,4 +3,4 @@
 namespace Pifeon.Core.Signaling.Messages;
 
 [ExcludeFromCodeCoverage]
-public record ReceiverJoinedResponse(string Type);
+internal sealed record ReceiverJoinedResponse(string Type);

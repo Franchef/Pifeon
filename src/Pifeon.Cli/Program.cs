@@ -15,7 +15,7 @@ app.Configure(config =>
           .WithDescription("Sends a file or folder to a remote peer by opening a pairing session.");
 
     config.AddCommand<ReceiveCommand>("receive")
-          .WithDescription("Receives files from a peer using the 6-digit pairing code.");
+          .WithDescription("Receives files from a peer using the 10-character pairing code.");
 });
 
 return await app.RunAsync(args);

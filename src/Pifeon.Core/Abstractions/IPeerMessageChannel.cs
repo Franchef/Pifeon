@@ -2,7 +2,7 @@ using Pifeon.Core.Networking;
 
 namespace Pifeon.Core.Abstractions;
 
-public interface IPeerMessageChannel : IAsyncDisposable
+internal interface IPeerMessageChannel : IAsyncDisposable
 {
     /// <summary>
     /// Statuto della connessione di rete sottostante.

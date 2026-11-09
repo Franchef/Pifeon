@@ -10,7 +10,7 @@ public sealed class ReceiveSettings : CommandSettings
     public string DestinationPath { get; set; } = string.Empty;
 
     [CommandArgument(1, "[CODE]")]
-    [Description("6-digit pairing code provided by the sender.")]
+    [Description("10-character pairing code provided by the sender.")]
     public string? Code { get; set; }
 
     [CommandOption("-s|--server <URL>")]

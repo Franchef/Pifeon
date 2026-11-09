@@ -1,6 +1,6 @@
 ﻿namespace Pifeon.Core.Networking;
 
-public enum ServerNetworkMessageType : byte
+internal enum ServerNetworkMessageType : byte
 {
     Handshake = 1,
     IpExchanges = 2,

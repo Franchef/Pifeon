@@ -8,6 +8,8 @@ namespace Pifeon.Cli.Commands;
 
 public sealed class ReceiveCommand : AsyncCommand<ReceiveSettings>
 {
+    private const string PairingCodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+
     public override async Task<int> ExecuteAsync(
         [NotNull] CommandContext context,
         [NotNull] ReceiveSettings settings,
@@ -25,12 +27,13 @@ public sealed class ReceiveCommand : AsyncCommand<ReceiveSettings>
         // Interactive prompt if code is not provided in arguments
         if (string.IsNullOrWhiteSpace(code))
         {
-            code = (await AnsiConsole.AskAsync<string>("Enter the [green]6-digit pairing code[/]:", cancellationToken)).Trim();
+            code = (await AnsiConsole.AskAsync<string>("Enter the [green]10-character pairing code[/]:", cancellationToken)).Trim();
         }
 
-        if (code.Length != 6 || !code.All(char.IsDigit))
+        code = code.ToUpperInvariant();
+        if (code.Length != 10 || code.Any(character => !PairingCodeAlphabet.Contains(character)))
         {
-            AnsiConsole.MarkupLine("[bold red]Error:[/] Code must consist of exactly 6 numeric digits.");
+            AnsiConsole.MarkupLine("[bold red]Error:[/] Code must contain exactly 10 valid letters or digits.");
             return 1;
         }
 

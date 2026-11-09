@@ -235,6 +235,113 @@ public sealed class PifeonClientFlowTests : IClassFixture<DirectTransferServerFi
     }
 
     [Fact]
+    public async Task FolderTransfer_ShouldReportPerFileAndOverallProgressOnBothPeers()
+    {
+        using CancellationTokenSource cts = CreateTimeout();
+        string source = Path.Combine(_tempDirectory, "source");
+        string destination = Path.Combine(_tempDirectory, "received");
+        Directory.CreateDirectory(Path.Combine(source, "nested"));
+        var files = new Dictionary<string, byte[]>
+        {
+            ["first.bin"] = RandomNumberGenerator.GetBytes(65536 + 3),
+            ["nested/empty.bin"] = [],
+            ["nested/last.bin"] = RandomNumberGenerator.GetBytes(5)
+        };
+        foreach ((string relativePath, byte[] data) in files)
+        {
+            string path = Path.Combine(source, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllBytesAsync(path, data, cts.Token);
+        }
+
+        await using PifeonServer client = CreateClient();
+        await using ISenderSession senderSession = await client.CreateSessionHandleAsync(cts.Token);
+        ISender sender = await senderSession.GetSenderAsync(cts.Token);
+        await using IReceiverSession receiverSession = await client.JoinSessionHandleAsync(senderSession.Code, cts.Token);
+        IReceiver receiver = await receiverSession.GetReceiverAsync(cts.Token);
+        var sent = new List<TransferProgress>();
+        var received = new List<TransferProgress>();
+        sender.OnTransferProgressChanged += sent.Add;
+        receiver.OnTransferProgressChanged += received.Add;
+
+        TransferManifest manifest = await TransferAsync(
+            sender, receiver, senderSession.Code, source, destination, cts.Token);
+
+        var expected = new List<TransferProgress>();
+        long totalBytesTransferred = 0;
+        for (int itemIndex = 0; itemIndex < manifest.Items.Count; itemIndex++)
+        {
+            TransferItemInfo item = manifest.Items[itemIndex];
+            long fileBytesTransferred = 0;
+            if (item.FileSize == 0)
+            {
+                expected.Add(new TransferProgress(
+                    itemIndex + 1,
+                    manifest.TotalFiles,
+                    item.RelativePath,
+                    0,
+                    0,
+                    totalBytesTransferred,
+                    manifest.TotalSizeBytes,
+                    IsFileCompleted: true,
+                    IsTransferCompleted: itemIndex == manifest.Items.Count - 1));
+                continue;
+            }
+
+            while (fileBytesTransferred < item.FileSize)
+            {
+                long chunkBytes = Math.Min(65536, item.FileSize - fileBytesTransferred);
+                fileBytesTransferred += chunkBytes;
+                totalBytesTransferred += chunkBytes;
+                expected.Add(new TransferProgress(
+                    itemIndex + 1,
+                    manifest.TotalFiles,
+                    item.RelativePath,
+                    fileBytesTransferred,
+                    item.FileSize,
+                    totalBytesTransferred,
+                    manifest.TotalSizeBytes,
+                    fileBytesTransferred == item.FileSize,
+                    fileBytesTransferred == item.FileSize && itemIndex == manifest.Items.Count - 1));
+            }
+        }
+
+        Assert.Equal(expected, sent);
+        Assert.Equal(sent, received);
+        foreach ((string relativePath, byte[] data) in files)
+        {
+            string path = Path.Combine(destination, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Assert.Equal(data, await File.ReadAllBytesAsync(path, cts.Token));
+        }
+    }
+
+    [Fact]
+    public async Task EmptyFolderTransfer_ShouldReportCompletionOnBothPeers()
+    {
+        using CancellationTokenSource cts = CreateTimeout();
+        string source = Path.Combine(_tempDirectory, "empty-source");
+        string destination = Path.Combine(_tempDirectory, "received");
+        Directory.CreateDirectory(source);
+        await using PifeonServer client = CreateClient();
+        await using ISenderSession senderSession = await client.CreateSessionHandleAsync(cts.Token);
+        ISender sender = await senderSession.GetSenderAsync(cts.Token);
+        await using IReceiverSession receiverSession = await client.JoinSessionHandleAsync(senderSession.Code, cts.Token);
+        IReceiver receiver = await receiverSession.GetReceiverAsync(cts.Token);
+        var sent = new List<TransferProgress>();
+        var received = new List<TransferProgress>();
+        sender.OnTransferProgressChanged += sent.Add;
+        receiver.OnTransferProgressChanged += received.Add;
+
+        TransferManifest manifest = await TransferAsync(
+            sender, receiver, senderSession.Code, source, destination, cts.Token);
+
+        TransferProgress completed = new(0, 0, string.Empty, 0, 0, 0, 0, false, true);
+        Assert.Empty(manifest.Items);
+        Assert.Equal(new[] { completed }, sent);
+        Assert.Equal(sent, received);
+    }
+
+    [Fact]
     public async Task CompatibilityApi_ShouldUseDirectTransferAndOwnSessionLifetime()
     {
         using CancellationTokenSource cts = CreateTimeout();

@@ -8,9 +8,14 @@ public interface ISender : IAsyncDisposable
     event Action? OnReceiverJoined;
 
     /// <summary>
-    /// Notifica il progresso: (byte inviati, byte totali, file corrente in corso)
+    /// Reports cumulative bytes sent, total bytes, and the current relative file path.
     /// </summary>
     event Action<long, long, string>? OnProgressChanged;
+
+    /// <summary>
+    /// Reports per-file and overall transfer progress. FileIndex is one-based.
+    /// </summary>
+    event Action<TransferProgress>? OnTransferProgressChanged;
 
     /// <summary>
     /// Inizializza la sessione sul server di segnalazione e restituisce il codice temporaneo.

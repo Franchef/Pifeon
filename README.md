@@ -56,7 +56,7 @@ secure connection setup, binary file transfer, and failure handling.
 3. **The Receiver** enters the code into their Pifeon instance.
 4. The peers exchange local IPv4 addresses, the sender's listening port, and ephemeral ECDH public keys through the server.
 5. The receiver connects directly to the sender. Both peers confirm possession of their derived keys using encrypted handshake messages, then close signaling; the server removes the session.
-6. **Both parties see live progress**, including cumulative bytes transferred, transfer speed, and the current file being transmitted.
+6. **Both parties see live progress** for the overall transfer and current file, including bytes transferred, percentage, and the current file path.
 
 #### Transfer protocol and security
 

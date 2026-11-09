@@ -94,26 +94,35 @@ public sealed class ReceiveCommand : AsyncCommand<ReceiveSettings>
                     )
                     .StartAsync(async progressContext =>
                     {
-                        ProgressTask downloadTask = progressContext.AddTask("[green]P2P Download[/]", maxValue: 100);
+                        ProgressTask totalTask = progressContext.AddTask(
+                            "[green]Receiving total[/]",
+                            maxValue: 1);
+                        ProgressTask fileTask = progressContext.AddTask(
+                            "[green]Waiting for transfer[/]",
+                            maxValue: 1);
 
-                        // Track progress through the Receiver's event
-                        receiver.OnProgressChanged += (bytesReceived, totalBytes, currentFile) =>
+                        receiver.OnTransferProgressChanged += progress =>
                         {
-                            if (totalBytes > 0)
-                            {
-                                downloadTask.MaxValue = totalBytes;
-                            }
-
-                            downloadTask.Value = bytesReceived;
-
-                            if (!string.IsNullOrEmpty(currentFile))
-                            {
-                                downloadTask.Description = $"[green]Receiving:[/] {Path.GetFileName(currentFile)}";
-                            }
+                            totalTask.MaxValue = Math.Max(progress.TotalSizeBytes, 1);
+                            totalTask.Value = progress.TotalSizeBytes == 0
+                                ? 1
+                                : progress.TotalBytesTransferred;
+                            fileTask.MaxValue = Math.Max(progress.FileSizeBytes, 1);
+                            fileTask.Value = progress.FileSizeBytes == 0
+                                ? 1
+                                : progress.FileBytesTransferred;
+                            fileTask.Description = progress.TotalFiles == 0
+                                ? "[green]No files to receive[/]"
+                                : $"[green]Receiving file {progress.FileIndex}/{progress.TotalFiles}:[/] " +
+                                  $"{Markup.Escape(progress.RelativePath)}";
                         };
 
                         // Start actual download to destination folder
                         await receiver.ReceiveToDirectoryAsync(destFolder, cts.Token);
+                        totalTask.Value = totalTask.MaxValue;
+                        fileTask.Value = fileTask.MaxValue;
+                        totalTask.Description = "[green]Transfer complete[/]";
+                        fileTask.Description = "[green]Transfer complete[/]";
                     });
 
                 AnsiConsole.MarkupLine("\n[bold green]✔ Download completed successfully![/]");

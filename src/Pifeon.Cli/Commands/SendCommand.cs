@@ -104,18 +104,34 @@ public sealed class SendCommand : AsyncCommand<SendSettings>
                     )
                     .StartAsync(async progressContext =>
                     {
-                        ProgressTask transferTask = progressContext.AddTask("[green]Sending P2P data[/]", maxValue: totalBytes);
+                        ProgressTask totalTask = progressContext.AddTask(
+                            "[green]Sending total[/]",
+                            maxValue: Math.Max(totalBytes, 1));
+                        ProgressTask fileTask = progressContext.AddTask(
+                            "[green]Waiting for transfer[/]",
+                            maxValue: 1);
 
-                        sender.OnProgressChanged += (bytesSent, total, currentFile) =>
+                        sender.OnTransferProgressChanged += progress =>
                         {
-                            transferTask.Value = bytesSent;
-                            if (!string.IsNullOrEmpty(currentFile))
-                            {
-                                transferTask.Description = $"[green]Sending:[/] {Path.GetFileName(currentFile)}";
-                            }
+                            totalTask.MaxValue = Math.Max(progress.TotalSizeBytes, 1);
+                            totalTask.Value = progress.TotalSizeBytes == 0
+                                ? 1
+                                : progress.TotalBytesTransferred;
+                            fileTask.MaxValue = Math.Max(progress.FileSizeBytes, 1);
+                            fileTask.Value = progress.FileSizeBytes == 0
+                                ? 1
+                                : progress.FileBytesTransferred;
+                            fileTask.Description = progress.TotalFiles == 0
+                                ? "[green]No files to transfer[/]"
+                                : $"[green]Sending file {progress.FileIndex}/{progress.TotalFiles}:[/] " +
+                                  $"{Markup.Escape(progress.RelativePath)}";
                         };
 
                         await sender.SendAsync(targetPath, cts.Token);
+                        totalTask.Value = totalTask.MaxValue;
+                        fileTask.Value = fileTask.MaxValue;
+                        totalTask.Description = "[green]Transfer complete[/]";
+                        fileTask.Description = "[green]Transfer complete[/]";
                     });
 
                 AnsiConsole.MarkupLine("\n[bold green]✔ Transfer completed successfully![/]");

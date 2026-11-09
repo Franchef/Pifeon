@@ -78,6 +78,23 @@ Continuous synchronization would require a separately designed authenticated ses
 
 ---
 
+## 🛠️ Development
+
+Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), then run these commands from the repository root:
+
+```shell
+dotnet restore
+dotnet build --no-restore --configuration Release
+dotnet test --no-build --configuration Release
+dotnet run --project src/Pifeon.Cli -- --help
+```
+
+The Windows setup script in [`scripts/setup`](scripts/setup) can install the SDK,
+Docker Desktop, and the .NET Aspire workload. Linux developers need to install
+the .NET 10 SDK themselves; a Linux setup script is not currently provided.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup details and contribution
+guidance.
+
 ## 📦 Compilation & Deployment
 
 To ensure maximum integration with the open-source community, deployment eliminates external runtime dependencies.
@@ -101,3 +118,9 @@ Packaged via **Snapcraft** and **Flatpak**. It utilizes the `network` and `home`
 ## 📄 License
 
 This project is licensed under the **GNU General Public License v3.0** - see the [LICENSE](LICENSE) file for details.
+
+## 🤝 Community
+
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)

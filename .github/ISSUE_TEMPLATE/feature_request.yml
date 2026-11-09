@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest an improvement or new capability
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before submitting, search existing issues to see if this idea has
+        already been discussed.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What need or difficulty would this feature address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe what you would like Pifeon to do.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional alternatives or additional context.
+    validations:
+      required: false

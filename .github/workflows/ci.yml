@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write # Required to update repository files / badges
+      contents: read
       pull-requests: write # Allows posting PR coverage comments
 
     steps:
@@ -59,8 +59,8 @@ jobs:
         format: markdown
         output: file
 
-    # Organizes and commits coverage badge
-    - name: Commit Coverage Badge
+    # Organizes the generated coverage badge in the workspace.
+    - name: Place Coverage Badge
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       run: |
         mkdir -p .github/badges

@@ -2,7 +2,7 @@
 
 [![Build & Test Status](https://github.com/Franchef/Pifeon/actions/workflows/ci.yml/badge.svg)](https://github.com/Franchef/Pifeon/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![.NET 10](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
+[![.NET 11](https://img.shields.io/badge/.NET-11.0-purple.svg)](https://dotnet.microsoft.com/)
 [![P2P Transfer](https://img.shields.io/badge/P2P-Transfer-green.svg)](#)
 [![End-to-End Encrypted](https://img.shields.io/badge/Encryption-E2E-darkgreen.svg)](#)
 
@@ -80,7 +80,7 @@ Continuous synchronization would require a separately designed authenticated ses
 
 ## 🛠️ Development
 
-Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), then run these commands from the repository root:
+Install the [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0), then run these commands from the repository root:
 
 ```shell
 dotnet restore
@@ -91,7 +91,7 @@ dotnet run --project src/Pifeon.Cli -- --help
 
 The Windows setup script in [`scripts/setup`](scripts/setup) can install the SDK,
 Docker Desktop, and the .NET Aspire workload. Linux developers need to install
-the .NET 10 SDK themselves; a Linux setup script is not currently provided.
+the .NET 11 SDK themselves; a Linux setup script is not currently provided.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup details and contribution
 guidance.
 

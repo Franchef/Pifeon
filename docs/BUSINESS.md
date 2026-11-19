@@ -31,7 +31,7 @@ This document outlines the funding and sustainability strategy for **Pifeon**. A
 - **Sovereign Tech Fund:** Target public infrastructure capital specialized in securing open-source tooling, data privacy, and robust underlying network layers.
 
 ### 🌐 Corporate Cloud Sponsorships
-- **Microsoft FOSS Fund & Azure Credits:** Leverage the C#/.NET 10 foundation of Pifeon to qualify for Microsoft's developer ecosystem programs. This opens access to recurring Azure cloud credits to sustain massively scaled global signaling nodes.
+- **Microsoft FOSS Fund & Azure Credits:** Leverage the C#/.NET 11 foundation of Pifeon to qualify for Microsoft's developer ecosystem programs. This opens access to recurring Azure cloud credits to sustain massively scaled global signaling nodes.
 - **Canonical Ecosystem Recognition:** Request integration into Canonical's official Linux showcases, scaling distribution and leveraging automated build networks across cross-platform Linux architectures (x64, ARM, etc.).
 
 ---

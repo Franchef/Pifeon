@@ -242,7 +242,7 @@ internal sealed class PifeonReceiver : IReceiver
             : new FileInfo(path);
         entry.Refresh();
         if (entry.LinkTarget is not null
-            || (entry.Exists && (entry.Attributes & FileAttributes.ReparsePoint) != 0))
+            || entry.Exists && (entry.Attributes & FileAttributes.ReparsePoint) != 0)
         {
             throw new InvalidDataException("Manifest destination paths cannot contain symbolic links or reparse points.");
         }

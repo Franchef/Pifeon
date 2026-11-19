@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net11.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<IsPackable>false</IsPackable>
+		<IsTestProject>true</IsTestProject>
+		<ExcludeFromCodeCoverage>true</ExcludeFromCodeCoverage>
+		<EnableXunitRunner>true</EnableXunitRunner>
+		<OutputType>Exe</OutputType>
+	</PropertyGroup>
+	<ItemGroup>
+		<AssemblyAttribute Include="System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute" />
+		<PackageReference Include="Aspire.Hosting.Testing" />
+		<PackageReference Include="xunit.v3" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\..\src\Pifeon.AppHost\Pifeon.AppHost.csproj" />
+		<ProjectReference Include="..\..\src\Pifeon.Core\Pifeon.Core.csproj" />
+	</ItemGroup>
+	<ItemGroup>
+		<Using Include="Xunit" />
+	</ItemGroup>
+</Project>

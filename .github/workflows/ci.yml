@@ -33,6 +33,9 @@ jobs:
     - name: Build Solution
       run: dotnet build --no-restore --configuration Release
 
+    - name: Run Aspire Tests
+      run: dotnet test --project tests/Pifeon.AspireTests/Pifeon.AspireTests.csproj --no-build --configuration Release
+
     # Executes tests using Microsoft.Testing.Platform and generates Cobertura report
     - name: Run Tests with Code Coverage
       run: |

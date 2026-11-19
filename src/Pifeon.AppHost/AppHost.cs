@@ -1,5 +1,5 @@
 IDistributedApplicationBuilder builder = DistributedApplication.CreateBuilder(args);
 
-builder.AddProject<Projects.Pifeon_Server>("PifeonServer");
+builder.AddDotnetProject("PifeonServer", "../Pifeon.Server/Pifeon.Server.csproj");
 
 await builder.Build().RunAsync();

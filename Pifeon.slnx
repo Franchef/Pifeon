@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/tests/">
+    <Project Path="tests/Pifeon.AspireTests/Pifeon.AspireTests.csproj" />
     <Project Path="tests/Pifeon.IntegrationTests/Pifeon.IntegrationTests.csproj" Id="928f8e78-26b0-4b9b-bca5-70aba41ddde2" />
     <Project Path="tests/Pifeon.Tests/Pifeon.Tests.csproj" Id="a9b8465b-43e0-4ffc-915b-280cbc8bda01" />
   </Folder>

@@ -24,6 +24,22 @@ dotnet build --no-restore --configuration Release
 dotnet test --no-build --configuration Release
 ```
 
+`Pifeon.IntegrationTests` uses `WebApplicationFactory` for in-process server
+tests. `Pifeon.AspireTests` starts the real AppHost with `Aspire.Hosting.Testing`
+and covers invalid receiver session codes and complete sender-to-receiver
+folder transfers. Transfers use isolated temporary `Sender` and `Receiver`
+directories and include a single-file case and a random 2-12 file case from
+`Sender/FolderToSend` to `Receiver/DestinationFolder`, with distinct file sizes.
+Tests verify all downloaded filenames, sizes, and contents and clean up
+afterward. These tests require the local Aspire AppHost prerequisites, but no
+Docker containers or external services.
+
+Run just the Aspire tests with:
+
+```shell
+dotnet test --project tests/Pifeon.AspireTests/Pifeon.AspireTests.csproj
+```
+
 CI collects unit and integration coverage separately and uses the pinned
 `dotnet-coverage` tool in `.config/dotnet-tools.json` to merge hits for shared code.
 Run `dotnet tool restore` to make this tool available locally. The coverage gate

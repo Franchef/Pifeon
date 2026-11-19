@@ -37,6 +37,8 @@ src/
 ├── Pifeon.Cli/           # 💻 Command Line Interface (Console Application)
 │   └── [Uses Spectre.Console for a rich, scriptable terminal experience]
 │
+├── Pifeon.App/           # Avalonia desktop app (scaffold; transfer UI pending)
+│
 ├── Pifeon.Server/        # 🌐 Ultra-lightweight signaling server
 │   └── [In-memory hub used exclusively for initial temporary-code pairing]
 ├── Pifeon.AppHost/       # Aspire development orchestrator
@@ -87,7 +89,11 @@ dotnet restore
 dotnet build --no-restore --configuration Release
 dotnet test --no-build --configuration Release
 dotnet run --project src/Pifeon.Cli -- --help
+dotnet run --project src/Pifeon.App
 ```
+
+The desktop app currently opens a blank window; file transfer features are not
+yet available in the GUI. It targets Windows, Linux, and macOS.
 
 The Windows setup script in [`scripts/setup`](scripts/setup) can install the SDK,
 Docker Desktop, and the .NET Aspire workload. Linux developers need to install

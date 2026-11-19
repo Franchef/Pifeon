@@ -5,13 +5,13 @@ For larger changes, open an issue first to discuss the approach.
 
 ## Development setup
 
-Pifeon targets .NET 10. Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+Pifeon targets .NET 11. Install the [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0).
 
 On Windows, `scripts/setup/windows_dev_env.ps1` can install the .NET SDK,
 Docker Desktop, and the .NET Aspire workload through WinGet. Run it from an
-elevated PowerShell session. The script currently installs the .NET 10 SDK.
+elevated PowerShell session. The script currently installs the .NET 11 SDK.
 
-There is no Linux setup script at this time. Install the .NET 10 SDK using the
+There is no Linux setup script at this time. Install the .NET 11 SDK using the
 instructions for your Linux distribution. The AppHost uses .NET Aspire; follow
 the Aspire setup instructions if you want to run the AppHost locally. The
 solution can be restored, built, and tested with the commands below.
